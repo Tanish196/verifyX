@@ -1,0 +1,13 @@
+# Popup-specific .gitignore
+
+# Node and build
+node_modules/
+dist/
+.vite/
+
+# Env
+.env
+
+# Editor
+.DS_Store
+.vscode/

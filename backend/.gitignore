@@ -1,0 +1,28 @@
+ # Backend .gitignore (Python)
+
+ # Byte-compiled / optimized / DLL files
+ __pycache__/
+ *.py[cod]
+ *$py.class
+
+ # Distribution / packaging
+ build/
+ dist/
+ *.egg-info/
+
+ # Virtual environments
+ venv/
+ ENV/
+ env/
+ myenv/
+
+ # Environments and secrets
+ .env
+ .env.*
+
+ # Editor
+ .vscode/
+ .idea/
+
+ # OS
+ .DS_Store
