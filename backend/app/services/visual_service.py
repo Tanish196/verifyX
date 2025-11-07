@@ -145,7 +145,7 @@ def _b64_to_image(b64: str) -> Optional['PILImage.Image']:
         
         # Open image with size limit
         ImageFile.LOAD_TRUNCATED_IMAGES = True
-        img = Image.open(io.BytesIO(data))
+        img = PILImage.open(io.BytesIO(data))
         
         # Convert to RGB if needed
         if img.mode != 'RGB':
@@ -153,7 +153,7 @@ def _b64_to_image(b64: str) -> Optional['PILImage.Image']:
             
         # Resize if too large
         if any(dim > max_dim for dim, max_dim in zip(img.size, MAX_IMAGE_SIZE)):
-            img.thumbnail(MAX_IMAGE_SIZE, Image.Resampling.LANCZOS)
+            img.thumbnail(MAX_IMAGE_SIZE, PILImage.Resampling.LANCZOS)
             
         return img
         
@@ -288,15 +288,11 @@ def analyze_images(
     # Calculate processing time
     latency_ms = int((time.time() - start_time) * 1000)
     
-    # Create response without error field if it's None
-    response_data = {
-        'average_similarity': float(average_similarity),
-        'matches': matches,
-        'deepfake_flag': deepfake_flag,
-        'fallback': fallback,
-        'latency_ms': latency_ms
-    }
-    if error is not None:
-        response_data['error'] = error
-    
-    return VisualResponse(**response_data)
+    # Create response with only the fields defined in VisualResponse model
+    return VisualResponse(
+        average_similarity=float(average_similarity),
+        matches=matches,
+        deepfake_flag=deepfake_flag,
+        fallback=fallback,
+        latency_ms=latency_ms
+    )
