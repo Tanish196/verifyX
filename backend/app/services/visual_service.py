@@ -92,11 +92,14 @@ def _load_clip(model_name: str = MODEL_NAME, device: Optional[str] = None) -> Tu
         # Import here to ensure proper initialization
         from transformers import CLIPModel, CLIPProcessor
         
-        # Load model and processor
+        # Load model and move to device
         _model = CLIPModel.from_pretrained(
             model_name,
             cache_dir=CACHE_DIR
-        ).to(_device)
+        )
+        _model = _model.to(_device)
+        # Set model to evaluation mode for deterministic inference
+        _model.eval()
         
         _processor = CLIPProcessor.from_pretrained(
             model_name,
