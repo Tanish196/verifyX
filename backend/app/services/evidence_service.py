@@ -2,11 +2,12 @@ import time
 import random
 from typing import List
 
-from ..models.evidence import EvidenceResponse, FactItem
-from ..config import settings
 import os
 import json
 import http.client
+
+from app.models.evidence import EvidenceResponse, FactItem
+from app.config import settings
 
 GOOGLE_FACTCHECK_ENDPOINT = "factchecktools.googleapis.com"
 
@@ -48,6 +49,15 @@ def _google_fact_check(claim: str):
 
 
 def check_evidence(text: str) -> EvidenceResponse:
+    """
+    Check claims in text against Google Fact Check API or mock RAG.
+    
+    Args:
+        text: Text containing claims to verify
+        
+    Returns:
+        EvidenceResponse with fact-checked claims and overall accuracy
+    """
     start = time.time()
     claims = _split_claims(text)
     facts: List[FactItem] = []
