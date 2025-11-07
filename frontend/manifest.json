@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "Content Verifier",
+  "version": "1.0",
+  "description": "Verifies webpage content using AI agents for fact-checking",
+  
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs"
+  ],
+  
+  "host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  
+  "background": {
+    "service_worker": "background.js"
+  },
+  
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-beautiful.js"],
+      "run_at": "document_end"
+    }
+  ],
+  
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Content Verifier"
+  },
+  
+  "web_accessible_resources": [
+    {
+      "resources": ["content-beautiful.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
