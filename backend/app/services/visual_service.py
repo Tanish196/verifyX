@@ -228,20 +228,25 @@ def analyze_images(
                 
                 with torch.no_grad():
                     outputs = _model(**inputs)
-                    batch_sims = outputs.logits_per_image.softmax(dim=0).squeeze()
+                    # Get logits per image and apply sigmoid to get probabilities
+                    logits_per_image = outputs.logits_per_image
                     
-                    # Handle single image case
-                    if batch_sims.dim() == 0:
-                        batch_sims = [batch_sims.item()]
+                    # Handle both single and multi-image cases
+                    if logits_per_image.dim() == 0:
+                        # Single image case
+                        batch_sims = [torch.sigmoid(logits_per_image).item()]
                     else:
-                        batch_sims = batch_sims.tolist()
-                        
+                        # Multi-image case - get diagonal elements (image-text pairs)
+                        batch_sims = torch.sigmoid(logits_per_image.diagonal()).tolist()
+                    
                     all_sims.extend(batch_sims)
             
-            # Process results
-            if all_sims:
+            # Process results - ensure we have valid similarity scores
+            if all_sims and len(valid_images) == len(all_sims):
                 for idx, sim in enumerate(all_sims):
-                    matches.append(ImageMatch(index=idx, similarity=float(sim)))
+                    # Ensure sim is a float and within valid range [0, 1]
+                    sim_float = max(0.0, min(1.0, float(sim)))
+                    matches.append(ImageMatch(index=idx, similarity=sim_float))
                 
                 average_similarity = sum(all_sims) / len(all_sims)
                 deepfake_flag = average_similarity < threshold
@@ -252,6 +257,9 @@ def analyze_images(
                     f"Deepfake: {deepfake_flag}"
                 )
             else:
+                logger.warning(f"Mismatch between valid images ({len(valid_images)}) and similarity scores ({len(all_sims)})")
+                # Fallback to default similarity if there's a mismatch
+                matches = [ImageMatch(index=i, similarity=0.5) for i in range(len(valid_images))]
                 fallback = True
                 error = "No valid similarity scores generated"
                 
