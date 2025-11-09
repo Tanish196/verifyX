@@ -1,7 +1,12 @@
+"""
+Synthesis service - combines all agent results into final verdict.
+Weights: 50% evidence, 30% visual, 20% linguistic.
+"""
+
 import time
 from typing import Optional, Dict, Any
 
-from ..models.synth import SynthesisResponse
+from app.models.synth import SynthesisResponse
 
 
 VERDICT_LABELS = ("likely_true", "uncertain", "likely_fake")
@@ -25,7 +30,24 @@ def _score_from_visual(vis: Optional[Dict[str, Any]]) -> float:
     return float(vis.get("average_similarity", 0.5))
 
 
-def synthesize(text: str, linguistic: Optional[Dict[str, Any]], evidence: Optional[Dict[str, Any]], visual: Optional[Dict[str, Any]]) -> SynthesisResponse:
+def synthesize(
+    text: str, 
+    linguistic: Optional[Dict[str, Any]], 
+    evidence: Optional[Dict[str, Any]], 
+    visual: Optional[Dict[str, Any]]
+) -> SynthesisResponse:
+    """
+    Synthesize results from all agents into a final verdict.
+    
+    Args:
+        text: Original text being analyzed
+        linguistic: Results from linguistic analysis
+        evidence: Results from evidence checking
+        visual: Results from visual analysis
+        
+    Returns:
+        SynthesisResponse with overall verdict and confidence
+    """
     start = time.time()
 
     ls = _score_from_linguistic(linguistic)
