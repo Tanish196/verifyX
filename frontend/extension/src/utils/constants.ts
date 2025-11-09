@@ -42,3 +42,13 @@ export const VERDICT_LEVELS = {
 } as const
 
 export type Status = typeof AGENT_STATUS[keyof typeof AGENT_STATUS]
+
+// Agent metadata used by legacy UI components (id must match handler keys)
+export const AGENT_META = {
+  linguistic: { id: 'linguistic', title: 'Linguistic Analysis', brief: 'Detects manipulation and deceptive language patterns.', icon: '📝', colorClass: 'agent-1' },
+  evidence: { id: 'evidence', title: 'Evidence Verification', brief: 'Searches for corroborating fact-checks and sources.', icon: '🔍', colorClass: 'agent-2' },
+  visual: { id: 'visual', title: 'Visual Analysis', brief: 'Analyzes images for signs of manipulation and deepfakes.', icon: '🖼️', colorClass: 'agent-3' },
+  synthesis: { id: 'synthesis', title: 'Final Verdict', brief: 'Synthesizes agent outputs into a single verdict.', icon: '🧠', colorClass: 'agent-4' },
+} as const
+
+export type AgentId = keyof typeof AGENT_META

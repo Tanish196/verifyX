@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react'
-import './App.css'
+import '<div className="" />
+<index></index>.css'
 import AgentCard from './components/AgentCard'
 import Loader from './components/Loader'
 import ErrorBanner from './components/ErrorBanner'

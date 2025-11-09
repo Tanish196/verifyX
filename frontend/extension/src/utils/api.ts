@@ -1,4 +1,5 @@
 import { API_BASE_URL, ENDPOINTS, RETRY_CONFIG } from './constants'
+import type { AgentId } from './constants'
 
 export interface LinguisticRequest {
   text: string
@@ -58,25 +59,64 @@ export interface SynthesisResponse {
   }
 }
 
+class HTTPError extends Error {
+  status: number
+  body?: string
+  constructor(status: number, statusText: string, body?: string) {
+    super(`HTTP ${status}: ${statusText}`)
+    this.status = status
+    this.body = body
+    this.name = 'HTTPError'
+  }
+}
+
+/**
+ * fetchWithRetry
+ * - attempts: number of attempts (default from RETRY_CONFIG)
+ * - timeoutMs: optional per-request timeout in milliseconds
+ */
 async function fetchWithRetry<T>(
   url: string,
   options: RequestInit,
-  attempts: number = RETRY_CONFIG.MAX_ATTEMPTS
+  attempts: number = RETRY_CONFIG.MAX_ATTEMPTS,
+  timeoutMs?: number
 ): Promise<T> {
+  const controller = new AbortController()
+  const mergedSignal = options.signal || controller.signal
+
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  if (timeoutMs && timeoutMs > 0) {
+    timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  }
+
   try {
-    const response = await fetch(url, options)
-    
+    const response = await fetch(url, { ...options, signal: mergedSignal })
+
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      const bodyText = await response.text().catch(() => undefined)
+      throw new HTTPError(response.status, response.statusText, bodyText)
     }
-    
-    return await response.json()
-  } catch (error) {
+
+    // parse JSON; let parse errors bubble up
+    const json = await response.json()
+    return json as T
+  } catch (error: any) {
+    // If aborted due to timeout, provide a clearer message
+    if (error.name === 'AbortError') {
+      if (attempts > 1) {
+        await new Promise(resolve => setTimeout(resolve, RETRY_CONFIG.DELAY_MS))
+        return fetchWithRetry<T>(url, options, attempts - 1, timeoutMs)
+      }
+      throw new Error('Request aborted (timeout)')
+    }
+
     if (attempts > 1) {
       await new Promise(resolve => setTimeout(resolve, RETRY_CONFIG.DELAY_MS))
-      return fetchWithRetry<T>(url, options, attempts - 1)
+      return fetchWithRetry<T>(url, options, attempts - 1, timeoutMs)
     }
     throw error
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId)
   }
 }
 
@@ -142,14 +182,12 @@ export async function synthesizeResults(
 
 export async function verifyContent(text: string, imageUrls: string[] = []) {
   try {
-    // Run linguistic and evidence checks in parallel
-    const [linguisticResult, evidenceResult] = await Promise.all([
+    // Run linguistic, evidence and visual checks in parallel
+    const [linguisticResult, evidenceResult, visualResult] = await Promise.all([
       analyzeLinguistic(text),
       checkEvidence(text),
+      analyzeVisual(imageUrls),
     ])
-
-    // Run visual analysis
-    const visualResult = await analyzeVisual(imageUrls)
 
     // Synthesize results
     const synthesis = await synthesizeResults(
@@ -168,4 +206,40 @@ export async function verifyContent(text: string, imageUrls: string[] = []) {
     console.error('Verification failed:', error)
     throw error
   }
+}
+
+// --- Compatibility helpers for older UI (App.tsx expects these) ---
+export type AgentResult = { agentId: string; result?: any; error?: string }
+
+export async function analyzeAgent(agentId: AgentId, payload: any): Promise<any> {
+  switch (agentId) {
+    case 'linguistic':
+      return analyzeLinguistic(payload.text)
+    case 'evidence':
+      return checkEvidence(payload.text || payload.claim || '')
+    case 'visual':
+      return analyzeVisual(payload.image_urls || payload.images || [])
+    case 'synthesis':
+      return synthesizeResults(payload.linguistic_score || 0, payload.evidence_score || 0, payload.visual_score || 0)
+    default:
+      throw new Error(`Unknown agentId: ${String(agentId)}`)
+  }
+}
+
+export async function analyzeAgentsInParallel(text: string): Promise<AgentResult[]> {
+  const agentIds: AgentId[] = ['linguistic', 'evidence', 'visual', 'synthesis']
+  const promises = agentIds.map(async (agentId) => {
+    try {
+      let result: any
+      if (agentId === 'linguistic') result = await analyzeLinguistic(text)
+      else if (agentId === 'evidence') result = await checkEvidence(text)
+      else if (agentId === 'visual') result = await analyzeVisual([])
+      else result = await synthesizeResults(0, 0, 0)
+      return { agentId, result }
+    } catch (err: any) {
+      return { agentId, error: err?.message || String(err) }
+    }
+  })
+
+  return Promise.all(promises)
 }

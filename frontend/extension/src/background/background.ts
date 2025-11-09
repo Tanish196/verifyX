@@ -17,12 +17,8 @@ chrome.runtime.onMessage.addListener((message: { type: string; data?: any }, _se
   return true // Keep message channel open for async response
 })
 
-// Handle extension icon click
-chrome.action.onClicked.addListener((tab: chrome.tabs.Tab) => {
-  if (tab.id) {
-    chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      files: ['content.js'],
-    })
-  }
-})
+// Note: we intentionally do not handle `chrome.action.onClicked` here because
+// the extension defines a `default_popup` in the manifest. That listener
+// will never fire when a popup is configured. If on-demand content script
+// injection is required, perform it from the popup UI using
+// `chrome.scripting.executeScript` after user interaction.
