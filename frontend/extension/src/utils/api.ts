@@ -82,7 +82,16 @@ async function fetchWithRetry<T>(
   timeoutMs?: number
 ): Promise<T> {
   const controller = new AbortController()
-  const mergedSignal = options.signal || controller.signal
+
+  // Wire external signal to abort our internal controller so that the
+  // timeout and external cancelation cooperate. If the caller passes an
+  // AbortSignal we listen for its 'abort' event and abort our controller.
+  let externalAbortHandler: (() => void) | undefined
+  const externalSignal = (options && (options as any).signal) as AbortSignal | undefined
+  if (externalSignal) {
+    externalAbortHandler = () => controller.abort()
+    externalSignal.addEventListener('abort', externalAbortHandler)
+  }
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined
   if (timeoutMs && timeoutMs > 0) {
@@ -90,7 +99,9 @@ async function fetchWithRetry<T>(
   }
 
   try {
-    const response = await fetch(url, { ...options, signal: mergedSignal })
+  // Always pass our controller.signal to fetch. It will be aborted either
+  // by the timeout we set above or by the external signal listener above.
+  const response = await fetch(url, { ...options, signal: controller.signal })
 
     if (!response.ok) {
       const bodyText = await response.text().catch(() => undefined)
@@ -117,6 +128,10 @@ async function fetchWithRetry<T>(
     throw error
   } finally {
     if (timeoutId) clearTimeout(timeoutId)
+    // Clean up the external listener so we don't leak function objects.
+    if (externalSignal && externalAbortHandler) {
+      externalSignal.removeEventListener('abort', externalAbortHandler)
+    }
   }
 }
 
@@ -226,7 +241,7 @@ export async function analyzeAgent(agentId: AgentId, payload: any): Promise<any>
   }
 }
 
-export async function analyzeAgentsInParallel(text: string): Promise<AgentResult[]> {
+export async function analyzeAgentsInParallel(text: string, imageUrls: string[] = []): Promise<AgentResult[]> {
   // Run the 3 analysis agents in parallel first (linguistic, evidence, visual).
   // Synthesis must run after we have real scores from these agents.
   const agentIds: AgentId[] = ['linguistic', 'evidence', 'visual']
@@ -236,7 +251,21 @@ export async function analyzeAgentsInParallel(text: string): Promise<AgentResult
       let result: any
       if (agentId === 'linguistic') result = await analyzeLinguistic(text)
       else if (agentId === 'evidence') result = await checkEvidence(text)
-      else result = await analyzeVisual([])
+      else {
+        // Only call the visual agent if we have image URLs to analyze.
+        if (imageUrls && imageUrls.length > 0) {
+          result = await analyzeVisual(imageUrls)
+        } else {
+          // Skip making a network call if no images are present. Return a skipped marker.
+          result = {
+            images_analyzed: 0,
+            manipulation_detected: false,
+            confidence_score: 0,
+            details: [],
+            skipped: true,
+          }
+        }
+      }
       return { agentId, result }
     } catch (err: any) {
       return { agentId, error: err?.message || String(err) }
@@ -246,6 +275,8 @@ export async function analyzeAgentsInParallel(text: string): Promise<AgentResult
   const results = await Promise.all(promises)
 
   // Extract numeric scores (use 0 as fallback when an agent failed or score missing)
+  // Note: Using 0 allows synthesis to continue even if agents fail (graceful degradation).
+  // Consider alternative: skip synthesis or mark results as partial if any agent fails.
   const linguisticScore =
     (results.find(r => r.agentId === 'linguistic')?.result as any)?.manipulation_score ?? 0
   const evidenceScore =

@@ -49,19 +49,20 @@ function App() {
       setError('Please enter some text to analyze')
       return
     }
-    setLoading(true)
-    showStatus('test', 'Starting multi-agent analysis...', 'success')
+  setLoading(true)
+  // Initialize the bulk analysis banner as loading; flip to success when complete
+  showStatus('test', 'Starting multi-agent analysis...', 'loading')
     try {
       const results = await analyzeAgentsInParallel(trimmed)
       results.forEach(r => {
-        if (r.error) showStatus(r.agentId, `❌ ${r.agentId} failed: ${r.error}`, 'error')
-        else showStatus(r.agentId, `✅ ${r.agentId} completed successfully`, 'success')
+        if (r.error) showStatus(r.agentId, ` ${r.agentId} failed: ${r.error}`, 'error')
+        else showStatus(r.agentId, ` ${r.agentId} completed successfully`, 'success')
         console.log(r.agentId, 'result:', r.result || r.error)
       })
-      showStatus('test', '✅ Multi-agent analysis completed! Check console for details.', 'success')
+      showStatus('test', 'Multi-agent analysis completed! Check console for details.', 'success')
     } catch (err: any) {
       setError(`Multi-agent analysis failed: ${err?.message || err}`)
-      showStatus('test', `❌ Multi-agent analysis failed: ${err?.message || err}`, 'error')
+      showStatus('test', `Multi-agent analysis failed: ${err?.message || err}`, 'error')
     } finally {
       setLoading(false)
     }
