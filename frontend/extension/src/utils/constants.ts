@@ -1,5 +1,7 @@
 // API Configuration
-export const API_BASE_URL = 'http://127.0.0.1:8000'
+// Use Vite env variable `VITE_API_BASE_URL` when provided, otherwise fall back to localhost for development.
+// This allows build-time configurability for production deployments.
+export const API_BASE_URL: string = (import.meta.env && (import.meta.env.VITE_API_BASE_URL as string)) || 'http://127.0.0.1:8000'
 
 // API Endpoints
 export const ENDPOINTS = {
@@ -43,7 +45,7 @@ export const VERDICT_LEVELS = {
 
 export type Status = typeof AGENT_STATUS[keyof typeof AGENT_STATUS]
 
-// Agent metadata used by legacy UI components (id must match handler keys)
+// Agent metadata used by UI components (id must match handler keys)
 export const AGENT_META = {
   linguistic: { id: 'linguistic', title: 'Linguistic Analysis', brief: 'Detects manipulation and deceptive language patterns.', icon: '📝', colorClass: 'agent-1' },
   evidence: { id: 'evidence', title: 'Evidence Verification', brief: 'Searches for corroborating fact-checks and sources.', icon: '🔍', colorClass: 'agent-2' },

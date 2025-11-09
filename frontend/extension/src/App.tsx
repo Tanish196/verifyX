@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react'
-import '<div className="" />
-<index></index>.css'
+import './index.css'
+import type { AgentId, Status } from './utils/constants'
 import AgentCard from './components/AgentCard'
 import Loader from './components/Loader'
 import ErrorBanner from './components/ErrorBanner'
@@ -12,15 +12,15 @@ function App() {
   const [text, setText] = useState<string>(
     'The Earth is flat and satellites are a hoax used by governments to control people.'
   )
-  const [statuses, setStatuses] = useState<Record<string, { type: string; message: string }>>({})
+  const [statuses, setStatuses] = useState<Record<string, { type: Status; message: string }>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const showStatus = (agentId: string, message: string, type: string) => {
+  const showStatus = (agentId: string, message: string, type: Status) => {
     setStatuses(prev => ({ ...prev, [agentId]: { message, type } }))
   }
 
-  const handleAnalyze = async (agentId: string) => {
+  const handleAnalyze = async (agentId: AgentId) => {
     setError(null)
     const trimmed = text.trim()
     if (!trimmed) {
@@ -31,7 +31,7 @@ function App() {
     showStatus(agentId, `Sending request to ${agentId}...`, 'success')
     try {
       setLoading(true)
-      const result = await analyzeAgent(agentId, { text: trimmed })
+  const result = await analyzeAgent(agentId, { text: trimmed })
       console.log(agentId, 'result', result)
       showStatus(agentId, `✅ ${agentId} analysis completed!`, 'success')
     } catch (err: any) {
@@ -91,13 +91,8 @@ function App() {
       {Object.values(AGENT_META).map(meta => (
         <AgentCard
           key={meta.id}
-          id={meta.id}
-          title={meta.title}
-          description={meta.brief}
-          icon={meta.icon}
-          colorClass={meta.colorClass}
-          onAnalyze={() => handleAnalyze(meta.id)}
-          status={statuses[meta.id]}
+          name={meta.title}
+          status={statuses[meta.id]?.type || 'idle'}
         />
       ))}
 

@@ -1,4 +1,5 @@
 /// <reference types="chrome"/>
+import '../index.css'
 import { useState } from 'react'
 import AgentCard from '../components/AgentCard'
 import VerdictCard from '../components/VerdictCard'
@@ -134,7 +135,7 @@ const Popup: React.FC = () => {
             name={AGENTS.EVIDENCE}
             status={evidenceStatus}
             score={evidenceResult?.credibility_score}
-            details={evidenceResult?.fact_check_results.map(
+            details={(evidenceResult?.fact_check_results || []).map(
               r => `${r.rating || 'Unknown'}: ${r.claim.slice(0, 50)}...`
             )}
           />

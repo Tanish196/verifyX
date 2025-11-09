@@ -227,19 +227,39 @@ export async function analyzeAgent(agentId: AgentId, payload: any): Promise<any>
 }
 
 export async function analyzeAgentsInParallel(text: string): Promise<AgentResult[]> {
-  const agentIds: AgentId[] = ['linguistic', 'evidence', 'visual', 'synthesis']
+  // Run the 3 analysis agents in parallel first (linguistic, evidence, visual).
+  // Synthesis must run after we have real scores from these agents.
+  const agentIds: AgentId[] = ['linguistic', 'evidence', 'visual']
+
   const promises = agentIds.map(async (agentId) => {
     try {
       let result: any
       if (agentId === 'linguistic') result = await analyzeLinguistic(text)
       else if (agentId === 'evidence') result = await checkEvidence(text)
-      else if (agentId === 'visual') result = await analyzeVisual([])
-      else result = await synthesizeResults(0, 0, 0)
+      else result = await analyzeVisual([])
       return { agentId, result }
     } catch (err: any) {
       return { agentId, error: err?.message || String(err) }
     }
   })
 
-  return Promise.all(promises)
+  const results = await Promise.all(promises)
+
+  // Extract numeric scores (use 0 as fallback when an agent failed or score missing)
+  const linguisticScore =
+    (results.find(r => r.agentId === 'linguistic')?.result as any)?.manipulation_score ?? 0
+  const evidenceScore =
+    (results.find(r => r.agentId === 'evidence')?.result as any)?.credibility_score ?? 0
+  const visualScore =
+    (results.find(r => r.agentId === 'visual')?.result as any)?.confidence_score ?? 0
+
+  // Run synthesis sequentially so it receives the actual scores
+  try {
+    const synthesis = await synthesizeResults(linguisticScore, evidenceScore, visualScore)
+    results.push({ agentId: 'synthesis', result: synthesis })
+  } catch (err: any) {
+    results.push({ agentId: 'synthesis', error: err?.message || String(err) })
+  }
+
+  return results
 }
