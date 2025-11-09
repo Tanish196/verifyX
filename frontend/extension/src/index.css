@@ -26,16 +26,24 @@
 }
 
 /* Base page styles (kept minimal - Tailwind handles most utilities) */
-html, body, #root {
-  height: 100%;
-}
-body {
+html, body {
   margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100%;
+}
+
+body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color: var(--color-text-primary);
-  background: linear-gradient(135deg, var(--color-bg-1) 0%, #e4edf5 100%);
+  background: transparent;
+}
+
+#root {
+  width: 100%;
+  min-height: 100%;
 }
 
 /* Popup container */
