@@ -1,13 +1,44 @@
-export const AGENT_URLS: Record<string, string> = {
-  agent1: 'https://us-central1-okqyyqqyqyyq.cloudfunctions.net/clean-agent1-linguistic',
-  agent2: 'https://us-central1-okqyyqqyqyyq.cloudfunctions.net/clean-agent2-evidence',
-  agent3: 'https://us-central1-okqyyqqyqyyq.cloudfunctions.net/vishwas-agent3-visual',
-  agent4: 'https://us-central1-okqyyqqyqyyq.cloudfunctions.net/clean-agent4-synthesizer'
-}
+// API Configuration
+export const API_BASE_URL = 'http://127.0.0.1:8000'
 
-export const AGENT_META = {
-  agent1: { id: 'agent1', title: 'Linguistic Cleaner', brief: 'Cleans and analyzes text for clarity, tone, and grammar.', icon: '📝', colorClass: 'agent-1' },
-  agent2: { id: 'agent2', title: 'Fact Checker', brief: 'Verifies factual accuracy and highlights inconsistencies.', icon: '🔍', colorClass: 'agent-2' },
-  agent3: { id: 'agent3', title: 'Visual Integrity', brief: 'Validates images for authenticity and detects deepfakes.', icon: '🖼️', colorClass: 'agent-3' },
-  agent4: { id: 'agent4', title: 'Knowledge Synthesizer', brief: 'Combines context and evidence to generate actionable insights.', icon: '🧠', colorClass: 'agent-4' }
+// API Endpoints
+export const ENDPOINTS = {
+  HEALTH: '/health',
+  LINGUISTIC: '/linguistic',
+  EVIDENCE: '/evidence',
+  VISUAL: '/visual',
+  SYNTHESIZE: '/synthesize',
 } as const
+
+// Agent Status
+export const AGENT_STATUS = {
+  IDLE: 'idle',
+  LOADING: 'loading',
+  SUCCESS: 'success',
+  ERROR: 'error',
+} as const
+
+// Retry Configuration
+export const RETRY_CONFIG = {
+  MAX_ATTEMPTS: 2,
+  DELAY_MS: 1000,
+} as const
+
+// Agent Names
+export const AGENTS = {
+  LINGUISTIC: 'Linguistic Analysis',
+  EVIDENCE: 'Evidence Verification',
+  VISUAL: 'Visual Analysis',
+  SYNTHESIS: 'Final Verdict',
+} as const
+
+// Verdict Levels
+export const VERDICT_LEVELS = {
+  VERIFIED: 'verified',
+  LIKELY_TRUE: 'likely-true',
+  UNCERTAIN: 'uncertain',
+  LIKELY_FALSE: 'likely-false',
+  FALSE: 'false',
+} as const
+
+export type Status = typeof AGENT_STATUS[keyof typeof AGENT_STATUS]
