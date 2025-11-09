@@ -59,6 +59,8 @@ class Settings:
     
     # Model cache directory
     CACHE_DIR: str = os.getenv("CACHE_DIR", str(os.path.expanduser("~/.cache/verifyx")))
+    # Admin token for internal debug endpoints (do NOT set in production without secure secret management)
+    ADMIN_TOKEN: Optional[str] = os.getenv("ADMIN_TOKEN")
 
 
 settings = Settings()

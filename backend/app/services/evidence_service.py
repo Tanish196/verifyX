@@ -6,6 +6,7 @@ import os
 import json
 import http.client
 import logging
+import re
 from urllib.parse import quote_plus
 
 from app.models.evidence import EvidenceResponse, FactItem
@@ -69,7 +70,12 @@ def _google_fact_check(claim: str):
         # URL-encode query to avoid malformed paths
         q = quote_plus(claim[:1000])
         path = f"/v1alpha1/claims:search?query={q}&key={api_key}"
-        logger.debug(f"FactCheck request path: {path}")
+        # Sanitize path for logging so API key is never written to logs
+        try:
+            sanitized = re.sub(r'([?&]key=)[^&]+', r"\1<REDACTED>", path)
+        except Exception:
+            sanitized = "(sanitization_failed)"
+        logger.debug(f"FactCheck request path: {sanitized}")
 
         conn = http.client.HTTPSConnection(GOOGLE_FACTCHECK_ENDPOINT, timeout=10)
         conn.request("GET", path)
