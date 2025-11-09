@@ -47,6 +47,17 @@ def health():
     }
 
 
+@app.get("/debug/config")
+def debug_config():
+    """Debug endpoint to check configuration."""
+    return {
+        "fact_check_api_key_present": bool(settings.FACT_CHECK_API_KEY),
+        "fact_check_api_key_prefix": settings.FACT_CHECK_API_KEY[:15] + "..." if settings.FACT_CHECK_API_KEY else None,
+        "enable_transformers": settings.ENABLE_TRANSFORMERS,
+        "environment": settings.environment,
+    }
+
+
 # Include agent routers
 app.include_router(linguistic_router)
 app.include_router(evidence_router)

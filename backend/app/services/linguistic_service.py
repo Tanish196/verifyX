@@ -60,6 +60,8 @@ MANIPULATION_KEYWORDS = {
 }
 
 SENTIMENT_LABELS = ["negative", "neutral", "positive"]
+# Minimum confidence for a label to be considered a signal
+SIGNAL_THRESHOLD = 0.5
 
 def _load_models(device: Optional[str] = None) -> Tuple[bool, str]:
     """
@@ -195,17 +197,18 @@ def _cached_analyze(text: str) -> Dict[str, Any]:
             result["dominant_tone"] = labels[0] if labels else "neutral"
             
             # Calculate manipulation score (sum of manipulative and sensational scores)
-            manip_score = sum(
-                score for label, score in zip(labels, scores)
+            # Use the strongest relevant label as the manipulation score (safer than summing)
+            manip_scores = [
+                float(score) for label, score in zip(labels, scores)
                 if isinstance(score, (int, float)) and label in ["manipulative", "sensational"]
-            )
-            result["manipulation_score"] = float(min(1.0, max(0.0, manip_score)))
-            
-            # Add signals for each detected category
+            ]
+            result["manipulation_score"] = float(max(manip_scores) if manip_scores else 0.0)
+
+            # Add signals for each detected category above threshold
             result["signals"] = [
                 {"label": label, "confidence": float(score)}
                 for label, score in zip(labels, scores)
-                if isinstance(score, (int, float))
+                if isinstance(score, (int, float)) and float(score) >= SIGNAL_THRESHOLD
             ]
             
         except Exception as e:
@@ -239,16 +242,18 @@ def _cached_analyze(text: str) -> Dict[str, Any]:
             )[0]
             
             # Calculate manipulation score
-            manip_score = sum(
-                score for cat, score in result["raw_probs"].items()
+            # Use the maximum of relevant keyword-based scores to represent manipulation
+            manip_scores = [
+                float(score) for cat, score in result["raw_probs"].items()
                 if cat in ["manipulative", "sensational"]
-            )
-            result["manipulation_score"] = min(1.0, manip_score)
-            
-            # Add signals
+            ]
+            result["manipulation_score"] = float(max(manip_scores) if manip_scores else 0.0)
+
+            # Add signals (only those above threshold)
             result["signals"] = [
                 {"label": cat, "confidence": float(score)}
                 for cat, score in result["raw_probs"].items()
+                if float(score) >= SIGNAL_THRESHOLD
             ]
     
     # Analyze sentiment if model is available

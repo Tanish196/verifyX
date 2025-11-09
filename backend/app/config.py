@@ -4,8 +4,24 @@ Uses environment variables with sensible defaults.
 """
 
 import os
+import logging
+from pathlib import Path
 from typing import Optional
 
+# Error handling for .env file -> Load .env file BEFORE defining Settings class
+try:
+    from dotenv import load_dotenv  # type: ignore
+    # .env is at backend/.env (one level above this app/ folder)
+    dotenv_path = Path(__file__).resolve().parents[1] / ".env"
+    if dotenv_path.exists():
+        load_dotenv(dotenv_path)
+        print(f"[Config] Loaded .env from {dotenv_path}")
+    else:
+        print(f"[Config] No .env file found at {dotenv_path}")
+except ImportError:
+    print("[Config] python-dotenv not installed, skipping .env loading")
+except Exception as e:
+    print(f"[Config] Error loading .env: {e}")
 
 class Settings:
     """
@@ -46,4 +62,11 @@ class Settings:
 
 
 settings = Settings()
+
+# Log whether FACT_CHECK_API_KEY is present to aid debugging at startup
+# print(f"[Config] FACT_CHECK_API_KEY present: {bool(settings.FACT_CHECK_API_KEY)}")
+# if settings.FACT_CHECK_API_KEY:
+#     print(f"[Config] API Key (first 10 chars): {settings.FACT_CHECK_API_KEY[:10]}...")
+# else:
+#     print("[Config] WARNING: No FACT_CHECK_API_KEY found - evidence service will use mock fallback")
 
