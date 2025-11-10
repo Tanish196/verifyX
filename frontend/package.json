@@ -1,6 +1,15 @@
 {
-  "dependencies": {
-    "@tailwindcss/vite": "^4.1.17",
-    "tailwindcss": "^4.1.17"
+  "name": "verifyx-frontend",
+  "version": "1.0.0",
+  "description": "Frontend projects for VerifyX - Chrome Extension and Landing Page",
+  "private": true,
+  "workspaces": [
+    "extension",
+    "landing"
+  ],
+  "scripts": {
+    "build:extension": "cd extension && npm run build",
+    "build:landing": "cd landing && npm run build",
+    "build:all": "npm run build:extension && npm run build:landing"
   }
 }

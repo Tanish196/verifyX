@@ -1,68 +1,93 @@
+
+/* Tailwind entry + design tokens for maintainability */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+  /* Colors */
+  --color-primary: #3498db;
+  --color-success: #4CAF50;
+  --color-error: #c62828;
+  --color-text-primary: #2c3e50;
+  --color-text-secondary: #7f8c8d;
+  --color-bg-0: #ffffff;
+  --color-bg-1: #f5f7fa;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  /* Spacing */
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 20px;
 
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* Border radius */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+/* Base page styles (kept minimal - Tailwind handles most utilities) */
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100%;
 }
 
 body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--color-text-primary);
+  background: transparent;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+#root {
+  width: 100%;
+  min-height: 100%;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+/* Popup container */
+.popup-root {
+  width: 350px;
+  padding: var(--spacing-lg);
+  background: transparent;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
-  }
-}
+.header { text-align:center; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid rgba(0,0,0,0.06) }
+.header h1 { font-size: 1.25rem; margin: 0 0 4px 0; color: var(--color-text-primary); font-weight: 700 }
+.header p { margin: 0; color: var(--color-text-secondary) }
+
+.agent-card { background: #fff; border-radius: var(--radius-md); box-shadow: 0 6px 20px rgba(0,0,0,0.08); padding: 1rem; margin-bottom: 0.9rem; border: 1px solid rgba(0,0,0,0.04) }
+.agent-card:hover { transform: translateY(-3px); }
+.agent-header { display:flex; align-items:center; margin-bottom:0.75rem }
+.agent-icon { font-size: 1.25rem; margin-right:0.75rem; width:40px; height:40px; display:flex; align-items:center; justify-content:center; border-radius:0.6rem }
+.agent-name { font-size:1rem; font-weight:600; margin:0; color:var(--color-text-primary) }
+.agent-description { font-size:0.85rem; color:var(--color-text-secondary); margin:0 }
+.agent-button { width:100%; padding:0.65rem; border-radius:var(--radius-sm); border:none; font-weight:600; font-size:0.88rem; cursor:pointer }
+
+.status { margin-top:0.75rem; padding:0.65rem; border-radius:var(--radius-sm); font-size:0.85rem; display:none }
+.status.success { background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%); color: #2e7d32; border:1px solid #a5d6a7 }
+.status.error { background: linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%); color: var(--color-error); border:1px solid #ef9a9a }
+
+.info-box { background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%); padding:0.9rem; border-radius:var(--radius-md); font-size:0.85rem; color:#1565c0; margin-bottom:1rem; border:1px solid #90caf9 }
+
+.test-section { margin-top:1rem; padding-top:0.75rem; border-top:1px solid rgba(0,0,0,0.06) }
+.test-section h3 { font-size:1rem; color:var(--color-text-primary); margin:0 0 0.6rem 0 }
+textarea { width:100%; height:100px; margin-bottom:0.75rem; padding:0.75rem; border:1px solid #e6e6e6; border-radius:var(--radius-sm); resize:vertical; font-size:0.95rem }
+textarea:focus { outline:none; border-color: var(--color-primary); box-shadow: 0 0 0 3px rgba(52,152,219,0.08) }
+
+.agent-1 .agent-icon { background: rgba(76, 175, 80, 0.12); color: var(--color-success) }
+.agent-1 .agent-button { background: var(--color-success); color: white }
+.agent-2 .agent-icon { background: rgba(33, 150, 243, 0.12); color: #2196F3 }
+.agent-2 .agent-button { background: #2196F3; color: white }
+.agent-3 .agent-icon { background: rgba(255, 152, 0, 0.12); color: #FF9800 }
+.agent-3 .agent-button { background: #FF9800; color: white }
+.agent-4 .agent-icon { background: rgba(156, 39, 176, 0.12); color: #9C27B0 }
+.agent-4 .agent-button { background: #9C27B0; color: white }
+
+.loader-overlay { position: fixed; inset: 0; display:flex; align-items:center; justify-content:center; background: rgba(0,0,0,0.12) }
+.loader { width: 48px; height:48px; border-radius:50%; border:6px solid rgba(255,255,255,0.2); border-top-color:var(--color-primary); animation:spin 1s linear infinite }
+@keyframes spin { to { transform: rotate(360deg) } }
+
+.error-banner { background:#ffdddd; border:1px solid #ffb3b3; padding:10px; border-radius:var(--radius-sm); margin-bottom:12px; color:#a33 }
+

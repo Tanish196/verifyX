@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react'
-import './App.css'
+import './index.css'
+import type { AgentId, Status } from './utils/constants'
 import AgentCard from './components/AgentCard'
 import Loader from './components/Loader'
 import ErrorBanner from './components/ErrorBanner'
@@ -11,15 +12,15 @@ function App() {
   const [text, setText] = useState<string>(
     'The Earth is flat and satellites are a hoax used by governments to control people.'
   )
-  const [statuses, setStatuses] = useState<Record<string, { type: string; message: string }>>({})
+  const [statuses, setStatuses] = useState<Record<string, { type: Status; message: string }>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const showStatus = (agentId: string, message: string, type: string) => {
+  const showStatus = (agentId: string, message: string, type: Status) => {
     setStatuses(prev => ({ ...prev, [agentId]: { message, type } }))
   }
 
-  const handleAnalyze = async (agentId: string) => {
+  const handleAnalyze = async (agentId: AgentId) => {
     setError(null)
     const trimmed = text.trim()
     if (!trimmed) {
@@ -30,7 +31,7 @@ function App() {
     showStatus(agentId, `Sending request to ${agentId}...`, 'success')
     try {
       setLoading(true)
-      const result = await analyzeAgent(agentId, { text: trimmed })
+  const result = await analyzeAgent(agentId, { text: trimmed })
       console.log(agentId, 'result', result)
       showStatus(agentId, `✅ ${agentId} analysis completed!`, 'success')
     } catch (err: any) {
@@ -48,19 +49,20 @@ function App() {
       setError('Please enter some text to analyze')
       return
     }
-    setLoading(true)
-    showStatus('test', 'Starting multi-agent analysis...', 'success')
+  setLoading(true)
+  // Initialize the bulk analysis banner as loading; flip to success when complete
+  showStatus('test', 'Starting multi-agent analysis...', 'loading')
     try {
       const results = await analyzeAgentsInParallel(trimmed)
       results.forEach(r => {
-        if (r.error) showStatus(r.agentId, `❌ ${r.agentId} failed: ${r.error}`, 'error')
-        else showStatus(r.agentId, `✅ ${r.agentId} completed successfully`, 'success')
+        if (r.error) showStatus(r.agentId, ` ${r.agentId} failed: ${r.error}`, 'error')
+        else showStatus(r.agentId, ` ${r.agentId} completed successfully`, 'success')
         console.log(r.agentId, 'result:', r.result || r.error)
       })
-      showStatus('test', '✅ Multi-agent analysis completed! Check console for details.', 'success')
+      showStatus('test', 'Multi-agent analysis completed! Check console for details.', 'success')
     } catch (err: any) {
       setError(`Multi-agent analysis failed: ${err?.message || err}`)
-      showStatus('test', `❌ Multi-agent analysis failed: ${err?.message || err}`, 'error')
+      showStatus('test', `Multi-agent analysis failed: ${err?.message || err}`, 'error')
     } finally {
       setLoading(false)
     }
@@ -90,13 +92,8 @@ function App() {
       {Object.values(AGENT_META).map(meta => (
         <AgentCard
           key={meta.id}
-          id={meta.id}
-          title={meta.title}
-          description={meta.brief}
-          icon={meta.icon}
-          colorClass={meta.colorClass}
-          onAnalyze={() => handleAnalyze(meta.id)}
-          status={statuses[meta.id]}
+          name={meta.title}
+          status={statuses[meta.id]?.type || 'idle'}
         />
       ))}
 

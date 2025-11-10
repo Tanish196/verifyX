@@ -9,6 +9,7 @@ class ImageMatch(BaseModel):
     index: int
     similarity: float
     notes: Optional[str] = None
+    renderer: Optional[str] = None
 
 class VisualResponse(BaseModel):
     agent_id: str = "agent3"

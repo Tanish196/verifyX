@@ -13,13 +13,35 @@ from app.models.evidence import EvidenceResponse, FactItem
 from app.config import settings
 
 GOOGLE_FACTCHECK_ENDPOINT = "factchecktools.googleapis.com"
-
-# Configure logger for this module
 logger = logging.getLogger(__name__)
 
-# Simple claim splitter for demo
+# Claim splitting helpers
 CLAIM_SPLIT_DELIMITERS = [".", "?", "!"]
 CLAIM_CONNECTORS = [" and ", " or ", " but ", ", "]
+
+
+def _is_likely_ui_text(claim: str) -> bool:
+    """Heuristic to detect UI/navigation strings to avoid false claims."""
+    claim_lower = claim.lower()
+
+    ui_patterns = [
+        'sign in', 'subscribe', 'login', 'register', 'share', 'follow',
+        'trending', 'more stories', 'read more', 'click here',
+        'menu', 'search', 'settings', 'home', 'about', 'contact',
+        'privacy policy', 'terms', 'cookie', 'advertisement'
+    ]
+
+    if any(pattern in claim_lower for pattern in ui_patterns):
+        return True
+
+    capitals = sum(1 for c in claim if c.isupper())
+    if len(claim) > 10 and capitals / len(claim) > 0.3:
+        return True
+
+    if re.search(r'\d{4}[,\s]+\d{1,2}:\d{2}', claim):
+        return True
+
+    return False
 
 
 def _split_claims(text: str) -> List[str]:
@@ -42,14 +64,17 @@ def _split_claims(text: str) -> List[str]:
     # Then split compound claims connected by "and", "or", etc.
     final_claims = []
     for claim in parts:
-        # Check for connectors and split if found
+        if _is_likely_ui_text(claim):
+            logger.debug(f"Filtering out likely UI text: {claim[:80]}")
+            continue
+
         split_by_connector = False
         for connector in CLAIM_CONNECTORS:
             if connector in claim.lower():
                 subclaims = claim.split(connector)
                 for subclaim in subclaims:
                     subclaim = subclaim.strip()
-                    if len(subclaim) > 15:  # Minimum length for a valid claim
+                    if len(subclaim) > 15 and not _is_likely_ui_text(subclaim):
                         final_claims.append(subclaim)
                 split_by_connector = True
                 break
