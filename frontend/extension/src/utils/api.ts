@@ -290,19 +290,19 @@ export async function analyzeAgentsInParallel(text: string, imageUrls: string[] 
 
   const results = await Promise.all(promises)
 
-  // Extract numeric scores (use 0 as fallback when an agent failed or score missing)
-  // Note: Using 0 allows synthesis to continue even if agents fail (graceful degradation).
-  // Consider alternative: skip synthesis or mark results as partial if any agent fails.
-  const linguisticScore =
-    (results.find(r => r.agentId === 'linguistic')?.result as any)?.manipulation_score ?? 0
-  const evidenceScore =
-    (results.find(r => r.agentId === 'evidence')?.result as any)?.credibility_score ?? 0
-  const visualScore =
-    (results.find(r => r.agentId === 'visual')?.result as any)?.confidence_score ?? 0
+  // Extract the full agent result objects so synthesis receives the original payloads
+  const linguisticResultObj = (results.find(r => r.agentId === 'linguistic')?.result as any) ?? null
+  const evidenceResultObj = (results.find(r => r.agentId === 'evidence')?.result as any) ?? null
+  const visualResultObj = (results.find(r => r.agentId === 'visual')?.result as any) ?? null
 
-  // Run synthesis sequentially so it receives the actual scores
+  // Construct the visual argument expected by the backend: use average_similarity if present
+  const visualArg = visualResultObj && typeof visualResultObj.average_similarity !== 'undefined'
+    ? visualResultObj.average_similarity
+    : undefined
+
+  // Run synthesis sequentially so it receives the original text and full agent payloads
   try {
-    const synthesis = await synthesizeResults(linguisticScore, evidenceScore, visualScore)
+    const synthesis = await synthesizeResults(text, linguisticResultObj, evidenceResultObj, visualArg)
     results.push({ agentId: 'synthesis', result: synthesis })
   } catch (err: any) {
     results.push({ agentId: 'synthesis', error: err?.message || String(err) })

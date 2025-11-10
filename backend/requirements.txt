@@ -7,3 +7,4 @@ httpx==0.27.0
 cairosvg>=2.0
 # Note: cairosvg is optional and requires native cairo libraries on Windows.
 # If unavailable, a pure-Python PIL-based SVG renderer is used as fallback.
+defusedxml>=0.7.1

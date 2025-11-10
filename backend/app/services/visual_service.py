@@ -50,6 +50,14 @@ except ImportError as e:
 # Cairo / cairosvg availability flag (set at import time)
 CAIRO_AVAILABLE: Optional[bool] = None
 
+# Secure XML parsing: prefer defusedxml to protect against XXE/DTD attacks.
+try:
+    from defusedxml import ElementTree as DefusedET  # type: ignore
+    DEFUSEDXML_AVAILABLE: bool = True
+except Exception:
+    DefusedET = None  # type: ignore
+    DEFUSEDXML_AVAILABLE = False
+
 def _detect_cairo_available() -> bool:
     """Return True when cairosvg + native cairo are usable, False otherwise.
 
@@ -273,10 +281,18 @@ def _b64_to_image(b64: str, idx: Optional[int] = None) -> Optional['PILImage.Ima
 
         # Try simple PIL-based SVG rasterization (pure Python, no native libs needed)
         try:
-            import xml.etree.ElementTree as ET
+            # Use defusedxml for safe parsing to avoid XXE/DTD attacks.
+            if not DEFUSEDXML_AVAILABLE:
+                # Do not fall back to the insecure stdlib parser; refuse to parse SVGs.
+                logger.warning(
+                    "defusedxml not available: refusing to parse SVG input to avoid XXE vulnerabilities"
+                )
+                raise RuntimeError("Secure XML parser (defusedxml) not available")
+
+            ET = DefusedET
             from PIL import Image, ImageDraw
-            
-            # Parse SVG to extract width, height, and basic shapes
+
+            # Parse SVG to extract width, height, and basic shapes using defusedxml
             root = ET.fromstring(svg_bytes.decode('utf-8') if isinstance(svg_bytes, bytes) else svg_bytes)
             
             # Get SVG dimensions (with defaults)
@@ -443,8 +459,23 @@ def _b64_to_image(b64: str, idx: Optional[int] = None) -> Optional['PILImage.Ima
                 return png_bytes, renderer_used
                 
         except Exception as e:
+            # If defusedxml explicitly blocked the XML (e.g. EntitiesForbidden), refuse to process the SVG
+            try:
+                # defusedxml defines DefusedXmlException and specific subclasses like EntitiesForbidden
+                if DEFUSEDXML_AVAILABLE:
+                    from defusedxml.common import DefusedXmlException  # type: ignore
+                    if isinstance(e, DefusedXmlException):
+                        logger.warning(
+                            "DefusedXML blocked unsafe XML content; rejecting SVG at index %s: %s",
+                            idx if idx is not None else '?', str(e)
+                        )
+                        return None
+            except Exception:
+                # If we cannot import defusedxml.common for any reason, fall through to placeholder path
+                pass
+
             logger.warning(f"PIL-based SVG fallback failed at index {idx if idx is not None else '?'}: {e}")
-            
+
             # Last resort: white placeholder
             renderer_used = 'placeholder'
             logger.info(f"Using white placeholder for SVG at index {idx if idx is not None else '?'}")
