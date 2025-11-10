@@ -128,7 +128,9 @@ const Popup: React.FC = () => {
             name={AGENTS.LINGUISTIC}
             status={linguisticStatus}
             score={linguisticResult?.manipulation_score}
-            details={linguisticResult?.signals}
+            details={linguisticResult?.signals?.map(
+              s => `${s.label} (${(s.confidence * 100).toFixed(0)}%)`
+            )}
           />
 
           <AgentCard
@@ -143,8 +145,10 @@ const Popup: React.FC = () => {
           <AgentCard
             name={AGENTS.VISUAL}
             status={visualStatus}
-            score={visualResult?.confidence_score}
-            details={visualResult?.details}
+            score={visualResult?.average_similarity}
+            details={visualResult?.matches?.map(
+              m => `Image ${m.index + 1}: ${(m.similarity * 100).toFixed(1)}% match${m.notes ? ` - ${m.notes}` : ''}`
+            )}
           />
         </div>
 
@@ -153,7 +157,7 @@ const Popup: React.FC = () => {
           <VerdictCard
             verdict={synthesisResult.verdict}
             confidence={synthesisResult.confidence}
-            overallScore={synthesisResult.overall_score}
+            overallScore={synthesisResult.confidence}
           />
         )}
       </div>

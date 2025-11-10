@@ -328,6 +328,42 @@ The system gracefully handles missing dependencies:
 - Check that virtual environment is activated
 - Verify Python path: `python -c "import sys; print(sys.path)"`
 
+### SVG rasterization (cairosvg / cairo)
+
+The Visual agent can rasterize SVG inputs using `cairosvg`, which requires native Cairo libraries on the host.
+
+- If you see warnings like "No module named 'cairosvg'" or "no library called 'cairo-2' was found":
+  - Install the Python package and native libs:
+
+    Linux (Debian/Ubuntu):
+    ```bash
+    sudo apt-get update
+    sudo apt-get install -y libcairo2 libcairo2-dev
+    pip install cairosvg
+    ```
+
+    macOS (Homebrew):
+    ```bash
+    brew install cairo
+    pip install cairosvg
+    ```
+
+    Windows (MSYS2 recommended):
+    - Install MSYS2 (https://www.msys2.org/)
+    - In MSYS2 Mingw64 shell:
+      ```bash
+      pacman -S mingw-w64-x86_64-cairo
+      pip install cairosvg
+      ```
+    - Alternatively, install GTK/cairo runtime DLLs appropriate for your Python build.
+
+- Quick check script:
+  ```bash
+  python scripts/check_svg_rasterization.py
+  ```
+
+If rasterization is unavailable, the service will skip SVG images and continue processing other images. Logs will include a concise install hint with platform-specific commands.
+
 ### Model Loading Issues
 - Check internet connection (models download on first use)
 - Verify `CACHE_DIR` has write permissions

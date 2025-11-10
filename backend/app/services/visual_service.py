@@ -1,4 +1,5 @@
 import base64
+import re
 import io
 import time
 import logging
@@ -13,44 +14,88 @@ if TYPE_CHECKING:
 
 from app.models.visual import VisualResponse, ImageMatch
 
-# Configure logging
+# Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Constants
+# Model and cache configuration
 MODEL_NAME = "openai/clip-vit-base-patch32"
 CACHE_DIR = str(Path("~/.cache/verifyx").expanduser())
-MAX_IMAGE_SIZE = (1024, 1024)  # Max dimensions for image processing
+MAX_IMAGE_SIZE = (1024, 1024)
 
-# Initialize globals with type hints
-_model = None  # type: Optional['CLIPModel']
-_processor = None  # type: Optional['CLIPProcessor']
-_device: str = 'cpu'  # Will be updated after torch import
-
-# Ensure cache directory exists
+# Globals (populated lazily)
+_model: Optional['CLIPModel'] = None
+_processor: Optional['CLIPProcessor'] = None
+_device: str = 'cpu'
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-# Check for dependencies
+# Try to import optional heavy deps (torch, transformers, Pillow)
 _HAS_CLIP = False
 try:
     import torch  # type: ignore
     from PIL import Image as PILImage, ImageFile  # type: ignore
     from transformers import CLIPProcessor, CLIPModel  # type: ignore
-    
-    # Set default device after torch import
+
     _device = 'cuda' if torch.cuda.is_available() else 'cpu'
     _HAS_CLIP = True
-    
-    # Create type alias for PIL Image
     Image = PILImage.Image  # type: Type[PILImage.Image]
-    
 except ImportError as e:
     logger.warning(f"Required dependencies not found: {e}")
-    # Create dummy types for type checking
+    # lightweight stand-ins for type checking/runtime safety
     class DummyType:
         pass
-    
+
     Image = ImageFile = CLIPModel = CLIPProcessor = DummyType  # type: ignore
+
+# Cairo / cairosvg availability flag (set at import time)
+CAIRO_AVAILABLE: Optional[bool] = None
+
+def _detect_cairo_available() -> bool:
+    """Return True when cairosvg + native cairo are usable, False otherwise.
+
+    The result is cached in the module-level CAIRO_AVAILABLE flag.
+    """
+    global CAIRO_AVAILABLE
+    if CAIRO_AVAILABLE is not None:
+        return CAIRO_AVAILABLE
+
+    try:
+        import cairosvg  # type: ignore
+        tiny_svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><rect width="1" height="1" fill="white"/></svg>'
+        try:
+            cairosvg.svg2png(bytestring=tiny_svg)
+            CAIRO_AVAILABLE = True
+        except OSError as ose:
+            logger.warning("cairosvg present but native cairo libs missing: %s", str(ose))
+            CAIRO_AVAILABLE = False
+        except Exception:
+            CAIRO_AVAILABLE = False
+    except ImportError:
+        CAIRO_AVAILABLE = False
+
+    # If not available, log a single concise install hint
+    if not CAIRO_AVAILABLE:
+        logger.warning(
+            "Cairo runtime not found. To enable SVG support: Windows: install GTK runtime; macOS: `brew install cairo`; Linux: `sudo apt-get install libcairo2 libcairo2-dev`"
+        )
+
+    return CAIRO_AVAILABLE
+
+def can_rasterize_svg() -> bool:
+    """Backward-compatible alias to check whether SVG rasterization is possible."""
+    return _detect_cairo_available()
+
+
+# Log availability at import time (once)
+try:
+    available = can_rasterize_svg()
+    if available:
+        logger.info("SVG rasterization available (cairosvg + native cairo detected)")
+    else:
+        logger.warning("SVG rasterization not available; SVG inputs will be skipped or fallback")
+except Exception:
+    # Do not let import-time checks crash the app
+    logger.warning("Failed to determine SVG rasterization availability")
 
 
 def _load_clip(model_name: str = MODEL_NAME, device: Optional[str] = None) -> Tuple[bool, str]:
@@ -120,7 +165,7 @@ def _load_clip(model_name: str = MODEL_NAME, device: Optional[str] = None) -> Tu
         return False, error_msg
 
 
-def _b64_to_image(b64: str) -> Optional['PILImage.Image']:
+def _b64_to_image(b64: str, idx: Optional[int] = None) -> Optional['PILImage.Image']:
     """
     Convert base64 encoded image to PIL Image with validation.
     
@@ -138,30 +183,381 @@ def _b64_to_image(b64: str) -> Optional['PILImage.Image']:
         logger.warning("Invalid base64 input")
         return None
     
-    try:
-        # Handle data URI if present
-        if b64.startswith("data:image"):
-            b64 = b64.split(",", 1)[1]
+    def _fix_padding(s: str) -> str:
+        """Pad base64 string to a multiple of 4 characters."""
+        if not isinstance(s, str) or len(s) == 0:
+            return s
+        s = s.strip()
+        # remove whitespace
+        s = re.sub(r'\s+', '', s)
+        missing = (4 - (len(s) % 4)) % 4
+        if missing:
+            s += '=' * missing
+        return s
+
+    def _fetch_url_bytes(url: str) -> Optional[bytes]:
+        """Fetch bytes for http/https URL; return None on failure."""
+        try:
+            import requests
+            resp = requests.get(url, timeout=5)
+            resp.raise_for_status()
+            return resp.content
+        except Exception as e:
+            logger.warning(f"Failed to fetch image URL at index {idx if idx is not None else '?'}; url={url[:200]}: {e}")
+            return None
+
+    def _create_svg_placeholder() -> Optional[bytes]:
+        """Return a minimal 100x100 white PNG as bytes (fallback for SVGs)."""
+        try:
+            from PIL import Image
+            # Create a simple white square
+            img = Image.new('RGB', (100, 100), color='white')
+            buf = io.BytesIO()
+            img.save(buf, format='PNG')
+            return buf.getvalue()
+        except Exception as e:
+            logger.warning(f"Failed to create SVG placeholder: {e}")
+            return None
+
+    def _rasterize_svg_bytes(svg_bytes: bytes) -> Optional[tuple]:
+        """Try to rasterize SVG bytes to PNG using cairosvg, then svglib/reportlab, then PIL, finally placeholder.
+
+        This function logs which renderer was used for each call.
+        """
+        renderer_used = None
+        # Try cairosvg first (best quality if native cairo available)
+        if CAIRO_AVAILABLE:
+            try:
+                import cairosvg
+                out = cairosvg.svg2png(bytestring=svg_bytes)
+                renderer_used = 'cairosvg'
+                logger.info(f"SVG rasterized using cairosvg at index {idx if idx is not None else '?'}")
+                return out, renderer_used
+            except Exception as e:
+                short = (str(svg_bytes)[:200] + '...') if len(svg_bytes) > 200 else str(svg_bytes)
+                logger.warning(
+                    f"cairosvg failed at index {idx if idx is not None else '?'}; preview='{short}': {e}"
+                )
+                # Fall through to next fallback
+
+        # Try svglib + reportlab if available (may still depend on native libs)
+        try:
+            try:
+                from svglib.svglib import svg2rlg  # type: ignore
+                from reportlab.graphics import renderPM  # type: ignore
+            except Exception:
+                raise
+            import tempfile
+            import os
+            # svglib expects a file path; write to a temp file
+            with tempfile.NamedTemporaryFile(mode='wb', suffix='.svg', delete=False) as tmp_svg:
+                tmp_svg.write(svg_bytes)
+                tmp_svg_path = tmp_svg.name
+            try:
+                drawing = svg2rlg(tmp_svg_path)
+                if drawing:
+                    png_data = renderPM.drawToString(drawing, fmt='PNG', dpi=72)
+                    if png_data and len(png_data) > 100:
+                        renderer_used = 'svglib'
+                        logger.info(f"SVG rasterized using svglib/reportlab at index {idx if idx is not None else '?'}")
+                        data_bytes = png_data if isinstance(png_data, (bytes, bytearray)) else png_data.encode('latin-1')
+                        return data_bytes, renderer_used
+            finally:
+                try:
+                    os.unlink(tmp_svg_path)
+                except Exception:
+                    pass
+        except Exception as e:
+            # svglib/reportlab not available or failed; log and continue to PIL fallback
+            logger.debug(f"svglib/reportlab rasterization unavailable or failed at index {idx if idx is not None else '?'}: {e}")
+
+        # Try simple PIL-based SVG rasterization (pure Python, no native libs needed)
+        try:
+            import xml.etree.ElementTree as ET
+            from PIL import Image, ImageDraw
             
-        # Decode base64
-        data = base64.b64decode(b64)
-        
+            # Parse SVG to extract width, height, and basic shapes
+            root = ET.fromstring(svg_bytes.decode('utf-8') if isinstance(svg_bytes, bytes) else svg_bytes)
+            
+            # Get SVG dimensions (with defaults)
+            svg_width = root.get('width', '200')
+            svg_height = root.get('height', '200')
+            
+            # Handle various dimension formats (px, pt, plain numbers)
+            def parse_dimension(dim_str: str, default: int = 200) -> int:
+                try:
+                    # Remove units and convert to int
+                    dim_clean = ''.join(c for c in str(dim_str) if c.isdigit() or c == '.')
+                    if dim_clean:
+                        return int(float(dim_clean))
+                except Exception:
+                    pass
+                return default
+            
+            width = parse_dimension(svg_width, 200)
+            height = parse_dimension(svg_height, 200)
+            
+            # Limit size to reasonable bounds
+            max_dim = 800
+            if width > max_dim or height > max_dim:
+                scale = max_dim / max(width, height)
+                width = int(width * scale)
+                height = int(height * scale)
+            
+            # Create image with white background
+            img = Image.new('RGB', (width, height), color='white')
+            draw = ImageDraw.Draw(img)
+            
+            # Parse viewBox for coordinate scaling if present
+            viewbox = root.get('viewBox')
+            scale_x = scale_y = 1.0
+            offset_x = offset_y = 0.0
+            
+            if viewbox:
+                try:
+                    vb_parts = viewbox.split()
+                    if len(vb_parts) == 4:
+                        vb_x, vb_y, vb_w, vb_h = map(float, vb_parts)
+                        offset_x, offset_y = -vb_x, -vb_y
+                        scale_x = width / vb_w if vb_w > 0 else 1.0
+                        scale_y = height / vb_h if vb_h > 0 else 1.0
+                except Exception:
+                    pass
+            
+            def transform_coord(x: float, y: float) -> tuple:
+                """Transform SVG coordinates to image coordinates."""
+                return (
+                    int((x + offset_x) * scale_x),
+                    int((y + offset_y) * scale_y)
+                )
+            
+            def parse_color(color_str: str) -> tuple:
+                """Parse SVG color to RGB tuple."""
+                if not color_str or color_str == 'none':
+                    return None
+                color_str = color_str.strip().lower()
+                
+                # Handle named colors
+                named_colors = {
+                    'red': (255, 0, 0), 'green': (0, 128, 0), 'blue': (0, 0, 255),
+                    'black': (0, 0, 0), 'white': (255, 255, 255), 'yellow': (255, 255, 0),
+                    'orange': (255, 165, 0), 'purple': (128, 0, 128), 'pink': (255, 192, 203),
+                    'cyan': (0, 255, 255), 'gray': (128, 128, 128), 'brown': (165, 42, 42)
+                }
+                if color_str in named_colors:
+                    return named_colors[color_str]
+                
+                # Handle hex colors
+                if color_str.startswith('#'):
+                    hex_color = color_str[1:]
+                    if len(hex_color) == 3:
+                        hex_color = ''.join([c*2 for c in hex_color])
+                    if len(hex_color) == 6:
+                        return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+                
+                # Handle rgb() format
+                if color_str.startswith('rgb'):
+                    nums = ''.join(c if c.isdigit() or c == ',' else ' ' for c in color_str)
+                    parts = [int(p.strip()) for p in nums.split(',') if p.strip()]
+                    if len(parts) >= 3:
+                        return tuple(parts[:3])
+                
+                return (128, 128, 128)  # Default gray
+            
+            # Extract namespace if present
+            ns = {'svg': 'http://www.w3.org/2000/svg'}
+            
+            # Draw rectangles
+            for rect in root.findall('.//{http://www.w3.org/2000/svg}rect') + root.findall('.//rect'):
+                try:
+                    x = float(rect.get('x', 0))
+                    y = float(rect.get('y', 0))
+                    w = float(rect.get('width', 0))
+                    h = float(rect.get('height', 0))
+                    fill = parse_color(rect.get('fill', 'black'))
+                    
+                    if fill and w > 0 and h > 0:
+                        x1, y1 = transform_coord(x, y)
+                        x2, y2 = transform_coord(x + w, y + h)
+                        draw.rectangle([x1, y1, x2, y2], fill=fill)
+                except Exception:
+                    pass
+            
+            # Draw circles
+            for circle in root.findall('.//{http://www.w3.org/2000/svg}circle') + root.findall('.//circle'):
+                try:
+                    cx = float(circle.get('cx', 0))
+                    cy = float(circle.get('cy', 0))
+                    r = float(circle.get('r', 0))
+                    fill = parse_color(circle.get('fill', 'black'))
+                    
+                    if fill and r > 0:
+                        x1, y1 = transform_coord(cx - r, cy - r)
+                        x2, y2 = transform_coord(cx + r, cy + r)
+                        draw.ellipse([x1, y1, x2, y2], fill=fill)
+                except Exception:
+                    pass
+            
+            # Draw ellipses
+            for ellipse in root.findall('.//{http://www.w3.org/2000/svg}ellipse') + root.findall('.//ellipse'):
+                try:
+                    cx = float(ellipse.get('cx', 0))
+                    cy = float(ellipse.get('cy', 0))
+                    rx = float(ellipse.get('rx', 0))
+                    ry = float(ellipse.get('ry', 0))
+                    fill = parse_color(ellipse.get('fill', 'black'))
+                    
+                    if fill and rx > 0 and ry > 0:
+                        x1, y1 = transform_coord(cx - rx, cy - ry)
+                        x2, y2 = transform_coord(cx + rx, cy + ry)
+                        draw.ellipse([x1, y1, x2, y2], fill=fill)
+                except Exception:
+                    pass
+            
+            # Draw polygons
+            for polygon in root.findall('.//{http://www.w3.org/2000/svg}polygon') + root.findall('.//polygon'):
+                try:
+                    points_str = polygon.get('points', '')
+                    fill = parse_color(polygon.get('fill', 'black'))
+                    
+                    if fill and points_str:
+                        # Parse points
+                        coords = []
+                        nums = [float(n) for n in points_str.replace(',', ' ').split() if n]
+                        for i in range(0, len(nums) - 1, 2):
+                            coords.append(transform_coord(nums[i], nums[i + 1]))
+                        
+                        if len(coords) >= 3:
+                            draw.polygon(coords, fill=fill)
+                except Exception:
+                    pass
+            
+            # Convert to PNG bytes
+            buf = io.BytesIO()
+            img.save(buf, format='PNG')
+            png_bytes = buf.getvalue()
+            
+            if png_bytes and len(png_bytes) > 100:
+                renderer_used = 'pillow'
+                logger.info(f"SVG rasterized using PIL-based renderer at index {idx if idx is not None else '?'}")
+                return png_bytes, renderer_used
+                
+        except Exception as e:
+            logger.warning(f"PIL-based SVG fallback failed at index {idx if idx is not None else '?'}: {e}")
+            
+            # Last resort: white placeholder
+            renderer_used = 'placeholder'
+            logger.info(f"Using white placeholder for SVG at index {idx if idx is not None else '?'}")
+            return _create_svg_placeholder(), renderer_used
+
+    try:
+        if not isinstance(b64, str) or len(b64.strip()) == 0:
+            logger.warning(f"Invalid image input at index {idx if idx is not None else '?'}")
+            return None
+
+        s = b64.strip()
+
+        # Raw SVG/XML input (direct SVG string)
+        if s.lstrip().startswith('<') and (s.lstrip().startswith('<svg') or s.lstrip().startswith('<?xml')):
+            svg_bytes = s.encode('utf-8')
+            res = _rasterize_svg_bytes(svg_bytes)
+            if not res:
+                logger.warning(f"Failed to process SVG at index {idx if idx is not None else '?'}")
+                return None
+            # res is (bytes, renderer)
+            if isinstance(res, tuple):
+                data, svg_renderer = res
+            else:
+                data = res
+                svg_renderer = None
+
+        # URL input
+        elif re.match(r'^https?://', s, flags=re.IGNORECASE):
+            data = _fetch_url_bytes(s)
+            if not data:
+                logger.warning(f"Failed to decode image at index {idx if idx is not None else '?'}")
+                return None
+
+        else:
+            # strip data URI if present and attempt base64 decode
+            s_clean = re.sub(r'^data:.*;base64,', '', s, flags=re.IGNORECASE)
+            s_fixed = _fix_padding(s_clean)
+            try:
+                data = base64.b64decode(s_fixed, validate=True)
+            except Exception:
+                try:
+                    data = base64.urlsafe_b64decode(s_fixed)
+                except Exception as exc:
+                    short = (s_fixed[:200] + '...') if len(s_fixed) > 200 else s_fixed
+                    logger.warning(
+                        f"Failed to decode base64 for image at index {idx if idx is not None else '?'}; preview='{short}': {exc}"
+                    )
+                    return None
+
+        # At this point `data` should be bytes representing an image (PNG/JPEG/etc.)
         # Open image with size limit
-        ImageFile.LOAD_TRUNCATED_IMAGES = True
-        img = PILImage.open(io.BytesIO(data))
-        
+        if hasattr(ImageFile, 'LOAD_TRUNCATED_IMAGES'):
+            ImageFile.LOAD_TRUNCATED_IMAGES = True
+
+        try:
+            img = PILImage.open(io.BytesIO(data))
+        except Exception as exc:
+            # Maybe the bytes represent an SVG - check if we can rasterize
+            txt_preview = data[:200].decode('utf-8', errors='ignore')
+            if '<svg' in txt_preview or '<?xml' in txt_preview:
+                # Detected SVG content - rasterize or use placeholder
+                res = _rasterize_svg_bytes(data)
+                if res:
+                    if isinstance(res, tuple):
+                        png_bytes, svg_renderer = res
+                    else:
+                        png_bytes = res
+                        svg_renderer = None
+                    try:
+                        img = PILImage.open(io.BytesIO(png_bytes))
+                    except Exception as exc2:
+                        short = (txt_preview[:200] + '...') if len(txt_preview) > 200 else txt_preview
+                        logger.warning(
+                            f"PIL cannot identify image at index {idx if idx is not None else '?'} after SVG processing; preview='{short}': {exc2}"
+                        )
+                        return None
+                else:
+                    # Failed to create even placeholder
+                    logger.warning(f"Failed to process SVG at index {idx if idx is not None else '?'}")
+                    return None
+            else:
+                # Not SVG - legitimate PIL failure
+                short = (data[:200].hex() + '...') if isinstance(data, (bytes, bytearray)) else str(data)[:200]
+                logger.warning(
+                    f"PIL cannot identify image at index {idx if idx is not None else '?'}; preview='{short}': {exc}"
+                )
+                return None
+
+        # Attach renderer metadata (if any) before returning
+        try:
+            if 'svg_renderer' in locals() and svg_renderer:
+                # Use PIL image.info to store the renderer used
+                img.info['renderer'] = svg_renderer
+        except Exception:
+            pass
+
         # Convert to RGB if needed
         if img.mode != 'RGB':
             img = img.convert('RGB')
-            
+
         # Resize if too large
         if any(dim > max_dim for dim, max_dim in zip(img.size, MAX_IMAGE_SIZE)):
             img.thumbnail(MAX_IMAGE_SIZE, PILImage.Resampling.LANCZOS)
-            
+
         return img
-        
+
     except Exception as e:
-        logger.error(f"Failed to process image: {str(e)}", exc_info=True)
+        # Catch-all to ensure we never raise from malformed input
+        short = (str(b64)[:200] + '...') if isinstance(b64, str) and len(b64) > 200 else str(b64)
+        logger.error(
+            f"Unexpected error processing image at index {idx if idx is not None else '?'}; preview='{short}': {e}",
+            exc_info=True
+        )
         return None
 
 
@@ -201,7 +597,7 @@ def analyze_images(
     valid_images: List['PILImage.Image'] = []
     if images_b64:
         for i, img_b64 in enumerate(images_b64):
-            img = _b64_to_image(img_b64)
+            img = _b64_to_image(img_b64, idx=i)
             if img:
                 valid_images.append(img)
             else:
@@ -249,7 +645,13 @@ def analyze_images(
                 for idx, sim in enumerate(all_sims):
                     # Ensure sim is a float and within valid range [0, 1]
                     sim_float = max(0.0, min(1.0, float(sim)))
-                    matches.append(ImageMatch(index=idx, similarity=sim_float))
+                    # Attempt to read renderer metadata from the PIL image
+                    renderer = None
+                    try:
+                        renderer = getattr(valid_images[idx], 'info', {}).get('renderer')
+                    except Exception:
+                        renderer = None
+                    matches.append(ImageMatch(index=idx, similarity=sim_float, renderer=renderer))
                 
                 average_similarity = sum(all_sims) / len(all_sims)
                 deepfake_flag = average_similarity < threshold
@@ -262,7 +664,14 @@ def analyze_images(
             else:
                 logger.warning(f"Mismatch between valid images ({len(valid_images)}) and similarity scores ({len(all_sims)})")
                 # Fallback to default similarity if there's a mismatch
-                matches = [ImageMatch(index=i, similarity=0.5) for i in range(len(valid_images))]
+                matches = []
+                for i in range(len(valid_images)):
+                    renderer = None
+                    try:
+                        renderer = getattr(valid_images[i], 'info', {}).get('renderer')
+                    except Exception:
+                        renderer = None
+                    matches.append(ImageMatch(index=i, similarity=0.5, notes="fallback", renderer=renderer))
                 fallback = True
                 error = "No valid similarity scores generated"
                 

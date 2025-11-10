@@ -5,18 +5,25 @@ export interface LinguisticRequest {
   text: string
 }
 
+export interface ManipulationSignal {
+  label: string
+  confidence: number
+  rationale?: string
+}
+
 export interface LinguisticResponse {
+  agent_id: string
+  model: string
+  dominant_tone: string
+  sentiment: string
   manipulation_score: number
-  signals: string[]
-  model_scores: {
-    entailment?: number
-    contradiction?: number
-    neutral?: number
-  }
+  signals: ManipulationSignal[]
+  raw_probs: Record<string, any>
+  latency_ms: number
 }
 
 export interface EvidenceRequest {
-  claim: string
+  text: string
 }
 
 export interface EvidenceResponse {
@@ -32,31 +39,40 @@ export interface EvidenceResponse {
 }
 
 export interface VisualRequest {
-  image_urls: string[]
+  text: string
+  images: string[]
+}
+
+export interface ImageMatch {
+  index: number
+  similarity: number
+  notes?: string
 }
 
 export interface VisualResponse {
-  images_analyzed: number
-  manipulation_detected: boolean
-  confidence_score: number
-  details: string[]
+  agent_id: string
+  model: string
+  average_similarity: number
+  matches: ImageMatch[]
+  deepfake_flag: boolean
+  fallback: boolean
+  latency_ms: number
 }
 
 export interface SynthesisRequest {
-  linguistic_score: number
-  evidence_score: number
-  visual_score: number
+  text: string
+  linguistic?: any
+  evidence?: any
+  visual?: any
 }
 
 export interface SynthesisResponse {
-  overall_score: number
+  agent_id: string
   verdict: string
   confidence: number
-  breakdown: {
-    linguistic: number
-    evidence: number
-    visual: number
-  }
+  rationale: string
+  supporting: Record<string, any>
+  latency_ms: number
 }
 
 class HTTPError extends Error {
@@ -156,12 +172,12 @@ export async function checkEvidence(claim: string): Promise<EvidenceResponse> {
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ claim }),
+      body: JSON.stringify({ text: claim }),
     }
   )
 }
 
-export async function analyzeVisual(imageUrls: string[]): Promise<VisualResponse> {
+export async function analyzeVisual(text: string, imageUrls: string[]): Promise<VisualResponse> {
   return fetchWithRetry<VisualResponse>(
     `${API_BASE_URL}${ENDPOINTS.VISUAL}`,
     {
@@ -169,15 +185,16 @@ export async function analyzeVisual(imageUrls: string[]): Promise<VisualResponse
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ image_urls: imageUrls }),
+      body: JSON.stringify({ text, images: imageUrls }),
     }
   )
 }
 
 export async function synthesizeResults(
-  linguisticScore: number,
-  evidenceScore: number,
-  visualScore: number
+  text: string,
+  linguistic?: any,
+  evidence?: any,
+  visual?: any
 ): Promise<SynthesisResponse> {
   return fetchWithRetry<SynthesisResponse>(
     `${API_BASE_URL}${ENDPOINTS.SYNTHESIZE}`,
@@ -187,9 +204,10 @@ export async function synthesizeResults(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        linguistic_score: linguisticScore,
-        evidence_score: evidenceScore,
-        visual_score: visualScore,
+        text,
+        linguistic,
+        evidence,
+        visual,
       }),
     }
   )
@@ -201,15 +219,11 @@ export async function verifyContent(text: string, imageUrls: string[] = []) {
     const [linguisticResult, evidenceResult, visualResult] = await Promise.all([
       analyzeLinguistic(text),
       checkEvidence(text),
-      analyzeVisual(imageUrls),
+      analyzeVisual(text, imageUrls),
     ])
 
-    // Synthesize results
-    const synthesis = await synthesizeResults(
-      linguisticResult.manipulation_score,
-      evidenceResult.credibility_score,
-      visualResult.confidence_score
-    )
+    // Synthesize results by sending the raw agent outputs and the original text
+    const synthesis = await synthesizeResults(text, linguisticResult, evidenceResult, visualResult)
 
     return {
       linguistic: linguisticResult,
@@ -233,9 +247,11 @@ export async function analyzeAgent(agentId: AgentId, payload: any): Promise<any>
     case 'evidence':
       return checkEvidence(payload.text || payload.claim || '')
     case 'visual':
-      return analyzeVisual(payload.image_urls || payload.images || [])
+      // ensure we pass text as well (fallback to empty string)
+      return analyzeVisual(payload.text || '', payload.image_urls || payload.images || [])
     case 'synthesis':
-      return synthesizeResults(payload.linguistic_score || 0, payload.evidence_score || 0, payload.visual_score || 0)
+      // send full agent results if available
+      return synthesizeResults(payload.text || '', payload.linguistic || null, payload.evidence || null, payload.visual || null)
     default:
       throw new Error(`Unknown agentId: ${String(agentId)}`)
   }
@@ -253,8 +269,8 @@ export async function analyzeAgentsInParallel(text: string, imageUrls: string[] 
       else if (agentId === 'evidence') result = await checkEvidence(text)
       else {
         // Only call the visual agent if we have image URLs to analyze.
-        if (imageUrls && imageUrls.length > 0) {
-          result = await analyzeVisual(imageUrls)
+          if (imageUrls && imageUrls.length > 0) {
+          result = await analyzeVisual(text, imageUrls)
         } else {
           // Skip making a network call if no images are present. Return a skipped marker.
           result = {
