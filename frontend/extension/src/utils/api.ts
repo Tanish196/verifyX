@@ -47,6 +47,7 @@ export interface ImageMatch {
   index: number
   similarity: number
   notes?: string
+  renderer?: string
 }
 
 export interface VisualResponse {
@@ -272,14 +273,16 @@ export async function analyzeAgentsInParallel(text: string, imageUrls: string[] 
           if (imageUrls && imageUrls.length > 0) {
           result = await analyzeVisual(text, imageUrls)
         } else {
-          // Skip making a network call if no images are present. Return a skipped marker.
+          // Skip making a network call if no images are present. Return a VisualResponse-shaped object.
           result = {
-            images_analyzed: 0,
-            manipulation_detected: false,
-            confidence_score: 0,
-            details: [],
-            skipped: true,
-          }
+            agent_id: 'visual',
+            model: '',
+            average_similarity: 0,
+            matches: [],
+            deepfake_flag: false,
+            fallback: true,
+            latency_ms: 0,
+          } as VisualResponse
         }
       }
       return { agentId, result }
@@ -295,14 +298,10 @@ export async function analyzeAgentsInParallel(text: string, imageUrls: string[] 
   const evidenceResultObj = (results.find(r => r.agentId === 'evidence')?.result as any) ?? null
   const visualResultObj = (results.find(r => r.agentId === 'visual')?.result as any) ?? null
 
-  // Construct the visual argument expected by the backend: use average_similarity if present
-  const visualArg = visualResultObj && typeof visualResultObj.average_similarity !== 'undefined'
-    ? visualResultObj.average_similarity
-    : undefined
-
   // Run synthesis sequentially so it receives the original text and full agent payloads
+  // Pass the complete visual result object (not just average_similarity) to match other callers
   try {
-    const synthesis = await synthesizeResults(text, linguisticResultObj, evidenceResultObj, visualArg)
+    const synthesis = await synthesizeResults(text, linguisticResultObj, evidenceResultObj, visualResultObj)
     results.push({ agentId: 'synthesis', result: synthesis })
   } catch (err: any) {
     results.push({ agentId: 'synthesis', error: err?.message || String(err) })
