@@ -1,4 +1,23 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# verifyX Landing Page
+
+Next.js landing page for verifyX - a multi-agent AI system for misinformation detection.
+
+## Features
+
+- 🎨 **Modern UI**: Built with Next.js 16, React 19, and TailwindCSS 4
+- 🔍 **Real-time Verification**: Connect to FastAPI backend for text and image verification
+- 🎭 **Multi-Agent System**: Linguistic, Evidence, Visual, and Synthesis agents
+- 📱 **Responsive Design**: Mobile-first approach with smooth animations
+- 🎥 **Extension Demo**: Showcase Chrome extension capabilities via video
+- 🔒 **Privacy First**: No data storage, ephemeral processing
+
+## Tech Stack
+
+- **Framework**: Next.js 16.0.1 (App Router)
+- **UI**: React 19.2.0, TailwindCSS 4.0.1
+- **Language**: TypeScript 5
+- **Icons**: Lucide React
+- **Fonts**: Inter (Google Fonts)
 
 ## Getting Started
 
