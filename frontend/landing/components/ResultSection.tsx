@@ -1,4 +1,4 @@
-'use client'
+"use client"
 
 import { type VerificationResult } from '@/lib/api'
 
@@ -26,6 +26,14 @@ export default function ResultSection({ result }: ResultSectionProps) {
   const getVerdictText = (verdict: string) => {
     return verdict.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
   }
+
+  // safe access helpers
+  const manipScore = linguistic?.manipulation_score ?? 0
+  const signals = linguistic?.signals ?? []
+  const credibility = evidence?.credibility_score ?? 0
+  const factChecks = evidence?.fact_check_results ?? []
+  const avgSim = visual?.average_similarity ?? 0
+  const matches = visual?.matches ?? []
 
   return (
     <div className="mt-12 space-y-6 animate-fadeIn">
@@ -82,27 +90,27 @@ export default function ResultSection({ result }: ResultSectionProps) {
                 <div className="flex-1 bg-gray-200 rounded-full h-2">
                   <div
                     className="bg-purple-600 h-2 rounded-full"
-                    style={{ width: `${linguistic.manipulation_score * 100}%` }}
+                    style={{ width: `${manipScore * 100}%` }}
                   />
                 </div>
                 <span className="text-sm font-semibold text-gray-900">
-                  {(linguistic.manipulation_score * 100).toFixed(0)}%
+                  {(manipScore * 100).toFixed(0)}%
                 </span>
               </div>
             </div>
             <div>
               <p className="text-xs text-gray-500 uppercase mb-1">Tone</p>
-              <p className="text-sm font-medium text-gray-900">{linguistic.dominant_tone}</p>
+              <p className="text-sm font-medium text-gray-900">{linguistic?.dominant_tone ?? '—'}</p>
             </div>
             <div>
               <p className="text-xs text-gray-500 uppercase mb-1">Sentiment</p>
-              <p className="text-sm font-medium text-gray-900">{linguistic.sentiment}</p>
+              <p className="text-sm font-medium text-gray-900">{linguistic?.sentiment ?? '—'}</p>
             </div>
-            {linguistic.signals.length > 0 && (
+            {(signals.length ?? 0) > 0 && (
               <div>
                 <p className="text-xs text-gray-500 uppercase mb-1">Signals</p>
                 <div className="space-y-1">
-                  {linguistic.signals.slice(0, 3).map((signal, idx) => (
+                  {signals.slice(0, 3).map((signal, idx) => (
                     <div key={idx} className="text-xs text-gray-700">
                       • {signal.label} ({(signal.confidence * 100).toFixed(0)}%)
                     </div>
@@ -131,24 +139,22 @@ export default function ResultSection({ result }: ResultSectionProps) {
                 <div className="flex-1 bg-gray-200 rounded-full h-2">
                   <div
                     className="bg-blue-600 h-2 rounded-full"
-                    style={{ width: `${evidence.credibility_score * 100}%` }}
+                    style={{ width: `${credibility * 100}%` }}
                   />
                 </div>
                 <span className="text-sm font-semibold text-gray-900">
-                  {(evidence.credibility_score * 100).toFixed(0)}%
+                  {(credibility * 100).toFixed(0)}%
                 </span>
               </div>
             </div>
-            {evidence.fact_check_results.length > 0 && (
+            {(factChecks.length ?? 0) > 0 && (
               <div>
                 <p className="text-xs text-gray-500 uppercase mb-1">Fact Checks Found</p>
-                <p className="text-sm font-medium text-gray-900">
-                  {evidence.fact_check_results.length} source(s)
-                </p>
+                <p className="text-sm font-medium text-gray-900">{factChecks.length} source(s)</p>
                 <div className="space-y-1 mt-2">
-                  {evidence.fact_check_results.slice(0, 2).map((check, idx) => (
+                  {factChecks.slice(0, 2).map((check, idx) => (
                     <div key={idx} className="text-xs text-gray-700 truncate">
-                      • {check.rating || 'Unknown'}: {check.claim.slice(0, 40)}...
+                      • {check.rating || 'Unknown'}: {String(check.claim ?? '').slice(0, 40)}...
                     </div>
                   ))}
                 </div>
@@ -177,24 +183,20 @@ export default function ResultSection({ result }: ResultSectionProps) {
                     <div className="flex-1 bg-gray-200 rounded-full h-2">
                       <div
                         className="bg-indigo-600 h-2 rounded-full"
-                        style={{ width: `${visual.average_similarity * 100}%` }}
+                        style={{ width: `${avgSim * 100}%` }}
                       />
                     </div>
-                    <span className="text-sm font-semibold text-gray-900">
-                      {(visual.average_similarity * 100).toFixed(0)}%
-                    </span>
+                    <span className="text-sm font-semibold text-gray-900">{(avgSim * 100).toFixed(0)}%</span>
                   </div>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 uppercase mb-1">Deepfake Flag</p>
-                  <p className="text-sm font-medium text-gray-900">
-                    {visual.deepfake_flag ? '⚠️ Detected' : '✓ Not Detected'}
-                  </p>
+                  <p className="text-sm font-medium text-gray-900">{visual?.deepfake_flag ? '⚠️ Detected' : '✓ Not Detected'}</p>
                 </div>
-                {visual.matches.length > 0 && (
+                {(matches.length ?? 0) > 0 && (
                   <div>
                     <p className="text-xs text-gray-500 uppercase mb-1">Images Analyzed</p>
-                    <p className="text-sm font-medium text-gray-900">{visual.matches.length}</p>
+                    <p className="text-sm font-medium text-gray-900">{matches.length}</p>
                   </div>
                 )}
               </>
@@ -210,7 +212,7 @@ export default function ResultSection({ result }: ResultSectionProps) {
         <p className="text-sm text-gray-600">
           Analysis completed in{' '}
           <span className="font-semibold text-gray-900">
-            {((synthesis.latency_ms + linguistic.latency_ms + (visual?.latency_ms || 0)) / 1000).toFixed(2)}s
+            {(((synthesis?.latency_ms ?? 0) + (linguistic?.latency_ms ?? 0) + (visual?.latency_ms ?? 0)) / 1000).toFixed(2)}s
           </span>
         </p>
       </div>
