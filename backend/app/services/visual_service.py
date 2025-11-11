@@ -4,6 +4,7 @@ import io
 import time
 import logging
 import os
+from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional, Tuple, Dict, Any, TypeVar, Type, TYPE_CHECKING, Union, cast
 
@@ -29,23 +30,8 @@ _processor: Optional['CLIPProcessor'] = None
 _device: str = 'cpu'
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-# Try to import optional heavy deps (torch, transformers, Pillow)
-_HAS_CLIP = False
-try:
-    import torch  # type: ignore
-    from PIL import Image as PILImage, ImageFile  # type: ignore
-    from transformers import CLIPProcessor, CLIPModel  # type: ignore
-
-    _device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    _HAS_CLIP = True
-    Image = PILImage.Image  # type: Type[PILImage.Image]
-except ImportError as e:
-    logger.warning(f"Required dependencies not found: {e}")
-    # lightweight stand-ins for type checking/runtime safety
-    class DummyType:
-        pass
-
-    Image = ImageFile = CLIPModel = CLIPProcessor = DummyType  # type: ignore
+# Note: Heavy imports (torch, transformers, PIL) are now lazy-loaded
+# They will only be imported when first needed via _get_clip_dependencies()
 
 # Cairo / cairosvg availability flag (set at import time)
 CAIRO_AVAILABLE: Optional[bool] = None
@@ -106,66 +92,79 @@ except Exception:
     logger.warning("Failed to determine SVG rasterization availability")
 
 
+@lru_cache(maxsize=1)
+def _get_clip_dependencies():
+    """
+    Lazy-load CLIP dependencies (torch, transformers, PIL).
+    Cached to import only once.
+    """
+    try:
+        logger.info("[LAZY LOAD] Importing CLIP dependencies (torch, transformers, PIL)...")
+        start = time.time()
+        import torch
+        from PIL import Image as PILImage, ImageFile
+        from transformers import CLIPProcessor, CLIPModel
+        elapsed = time.time() - start
+        logger.info(f"[LAZY LOAD] CLIP dependencies loaded in {elapsed:.2f}s")
+        return torch, PILImage, ImageFile, CLIPProcessor, CLIPModel, True
+    except ImportError as e:
+        logger.warning(f"CLIP dependencies not available: {e}")
+        return None, None, None, None, None, False
+
+
+@lru_cache(maxsize=1)
 def _load_clip(model_name: str = MODEL_NAME, device: Optional[str] = None) -> Tuple[bool, str]:
     """
-    Load CLIP model and processor.
+    Lazy-load CLIP model and processor. Called only on first use, then cached.
     
     Args:
         model_name: Name of the CLIP model to load
-        device: Optional device to load the model on ('cuda' or 'cpu'). If None, auto-detects.
+        device: Optional device ('cuda' or 'cpu'). Auto-detects if None.
         
     Returns:
         Tuple of (success: bool, message: str)
     """
     global _model, _processor, _device
     
-    if not _HAS_CLIP:
-        return False, "CLIP dependencies not available"
-        
     if _model is not None and _processor is not None:
         return True, "Models already loaded"
     
+    # Lazy-load dependencies
+    torch, PILImage, ImageFile, CLIPProcessor, CLIPModel, deps_available = _get_clip_dependencies()
+    
+    if not deps_available:
+        return False, "CLIP dependencies not available"
+    
+    # Check if CLIP should be used
     try:
-        import torch
-        
-        # Update device if specified
-        if device is not None:
-            if device not in ['cuda', 'cpu']:
-                logger.warning(f"Invalid device '{device}', defaulting to auto-detect")
-                device = None
-            else:
-                _device = device
-        
-        # Auto-detect device if not specified
+        from app.config import settings
+        if not getattr(settings, 'ENABLE_TORCH', True):
+            logger.info("ENABLE_TORCH=False, skipping CLIP load")
+            return False, "CLIP disabled via config"
+    except:
+        pass
+    
+    try:
+        # Determine device
         if device is None:
-            _device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            _device = 'cuda' if torch.cuda.is_available() else 'cpu'  # type: ignore[union-attr]
+        else:
+            _device = device if device in ['cuda', 'cpu'] else 'cpu'
         
-        logger.info(f"Loading CLIP model '{model_name}' on {_device}...")
-        
-        # Import here to ensure proper initialization
-        from transformers import CLIPModel, CLIPProcessor
+        logger.info(f"[LAZY LOAD] Loading CLIP model '{model_name}' on {_device}...")
+        start = time.time()
         
         # Load model and move to device
-        _model = CLIPModel.from_pretrained(
-            model_name,
-            cache_dir=CACHE_DIR
-        )
-        _model = _model.to(_device)
-        # Set model to evaluation mode for deterministic inference
-        _model.eval()
+        _model = CLIPModel.from_pretrained(model_name, cache_dir=CACHE_DIR)  # type: ignore[union-attr]
+        _model = _model.to(_device)  # type: ignore[union-attr]
+        _model.eval()  # Set to evaluation mode  # type: ignore[union-attr]
         
-        _processor = CLIPProcessor.from_pretrained(
-            model_name,
-            cache_dir=CACHE_DIR
-        )
+        _processor = CLIPProcessor.from_pretrained(model_name, cache_dir=CACHE_DIR)  # type: ignore[union-attr]
         
-        logger.info(f"Successfully loaded CLIP model on {_device}")
+        elapsed = time.time() - start
+        logger.info(f"[LAZY LOAD] CLIP model loaded in {elapsed:.2f}s")
         return True, f"Models loaded on {_device}"
         
-    except ImportError as e:
-        error_msg = f"Failed to import required modules: {e}"
-        logger.error(error_msg, exc_info=True)
-        return False, error_msg
     except Exception as e:
         error_msg = f"Failed to load CLIP model: {str(e)}"
         logger.error(error_msg, exc_info=True)
@@ -173,7 +172,7 @@ def _load_clip(model_name: str = MODEL_NAME, device: Optional[str] = None) -> Tu
         return False, error_msg
 
 
-def _b64_to_image(b64: str, idx: Optional[int] = None) -> Optional['PILImage.Image']:
+def _b64_to_image(b64: str, idx: Optional[int] = None) -> Optional[Any]:
     """
     Convert base64 encoded image to PIL Image with validation.
     
@@ -183,8 +182,10 @@ def _b64_to_image(b64: str, idx: Optional[int] = None) -> Optional['PILImage.Ima
     Returns:
         PIL Image object or None if conversion fails
     """
-    if not _HAS_CLIP or not hasattr(PILImage, 'Image') or not hasattr(PILImage, 'Resampling'):
-        logger.warning("Pillow (PIL) is not available or not properly initialized")
+    # Lazy-load PIL dependencies
+    _, PILImage_module, _, _, _, deps_available = _get_clip_dependencies()
+    if not deps_available or PILImage_module is None:
+        logger.warning("Pillow (PIL) is not available")
         return None
         
     if not b64 or not isinstance(b64, str):
@@ -293,7 +294,7 @@ def _b64_to_image(b64: str, idx: Optional[int] = None) -> Optional['PILImage.Ima
             from PIL import Image, ImageDraw
 
             # Parse SVG to extract width, height, and basic shapes using defusedxml
-            root = ET.fromstring(svg_bytes.decode('utf-8') if isinstance(svg_bytes, bytes) else svg_bytes)
+            root = ET.fromstring(svg_bytes.decode('utf-8') if isinstance(svg_bytes, bytes) else svg_bytes)  # type: ignore[union-attr]
             
             # Get SVG dimensions (with defaults)
             svg_width = root.get('width', '200')
@@ -347,7 +348,7 @@ def _b64_to_image(b64: str, idx: Optional[int] = None) -> Optional['PILImage.Ima
                     int((y + offset_y) * scale_y)
                 )
             
-            def parse_color(color_str: str) -> tuple:
+            def parse_color(color_str: str) -> Optional[tuple]:
                 """Parse SVG color to RGB tuple."""
                 if not color_str or color_str == 'none':
                     return None
@@ -527,11 +528,14 @@ def _b64_to_image(b64: str, idx: Optional[int] = None) -> Optional['PILImage.Ima
 
         # At this point `data` should be bytes representing an image (PNG/JPEG/etc.)
         # Open image with size limit
-        if hasattr(ImageFile, 'LOAD_TRUNCATED_IMAGES'):
-            ImageFile.LOAD_TRUNCATED_IMAGES = True
+        _, PILImage_module, ImageFile_module, _, _, _ = _get_clip_dependencies()
+        if ImageFile_module and hasattr(ImageFile_module, 'LOAD_TRUNCATED_IMAGES'):
+            ImageFile_module.LOAD_TRUNCATED_IMAGES = True  # type: ignore[attr-defined]
 
         try:
-            img = PILImage.open(io.BytesIO(data))
+            img = PILImage_module.open(io.BytesIO(data)) if PILImage_module else None
+            if img is None:
+                return None
         except Exception as exc:
             # Maybe the bytes represent an SVG - check if we can rasterize
             txt_preview = data[:200].decode('utf-8', errors='ignore')
@@ -617,15 +621,18 @@ def analyze_images(
     fallback = False
     error = None
 
+    # Lazy-load CLIP dependencies
+    torch, PILImage, ImageFile, CLIPProcessor, CLIPModel, deps_available = _get_clip_dependencies()
+    
     # Initialize models if needed
-    if _HAS_CLIP and (_model is None or _processor is None):
+    if deps_available and (_model is None or _processor is None):
         success, msg = _load_clip()
         if not success:
             logger.warning(f"Using fallback mode: {msg}")
             fallback = True
 
     # Decode and validate images
-    valid_images: List['PILImage.Image'] = []
+    valid_images: List[Any] = []  # Type as Any since PILImage might be None
     if images_b64:
         for i, img_b64 in enumerate(images_b64):
             img = _b64_to_image(img_b64, idx=i)
@@ -644,7 +651,7 @@ def analyze_images(
                 batch_images = valid_images[i:i+batch_size]
                 
                 # Move tensors to the correct device
-                inputs = _processor(
+                inputs = _processor(  # type: ignore[call-arg]
                     text=[text] * len(batch_images),
                     images=batch_images,
                     return_tensors="pt",

@@ -21,15 +21,18 @@ export interface LinguisticResponse {
 }
 
 export interface EvidenceResponse {
-  claim: string
-  fact_check_results: Array<{
+  agent_id: string
+  provider: string
+  facts_checked: Array<{
     claim: string
-    claimant?: string
-    rating?: string
+    verdict: string
+    source?: string
     url?: string
-    publisher?: string
+    confidence: number
   }>
-  credibility_score: number
+  coverage_ratio: number
+  overall_accuracy_score: number
+  latency_ms: number
 }
 
 export interface ImageMatch {

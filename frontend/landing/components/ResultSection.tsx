@@ -30,8 +30,8 @@ export default function ResultSection({ result }: ResultSectionProps) {
   // safe access helpers
   const manipScore = linguistic?.manipulation_score ?? 0
   const signals = linguistic?.signals ?? []
-  const credibility = evidence?.credibility_score ?? 0
-  const factChecks = evidence?.fact_check_results ?? []
+  const credibility = evidence?.overall_accuracy_score ?? 0
+  const factChecks = evidence?.facts_checked ?? []
   const avgSim = visual?.average_similarity ?? 0
   const matches = visual?.matches ?? []
 
@@ -154,7 +154,7 @@ export default function ResultSection({ result }: ResultSectionProps) {
                 <div className="space-y-1 mt-2">
                   {factChecks.slice(0, 2).map((check, idx) => (
                     <div key={idx} className="text-xs text-gray-700 truncate">
-                      • {check.rating || 'Unknown'}: {String(check.claim ?? '').slice(0, 40)}...
+                      • {check.verdict || 'Unknown'}: {String(check.claim ?? '').slice(0, 40)}...
                     </div>
                   ))}
                 </div>

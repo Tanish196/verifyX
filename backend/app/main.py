@@ -28,14 +28,30 @@ app = FastAPI(
 print(f"[Startup] Environment: {settings.environment}")
 print(f"[Startup] Configuring CORS for free-tier deployment...")
 
+allowed_origins = [
+    "https://verify-x-two.vercel.app",  # Frontend (Vercel)
+    "http://localhost:3000",            # Local dev
+    "http://127.0.0.1:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for free tier (Render proxy compatibility)
+    allow_origins=allowed_origins,  # Allow all origins for free tier (Render proxy compatibility)
     allow_credentials=False,  # Must be False when using wildcard origins
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],
+    allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+
+@app.get("/")
+def root():
+    """Root endpoint for Render health checks."""
+    return {
+        "status": "ok",
+        "message": "VerifyX backend live",
+        "version": "1.0.0",
+    }
 
 
 @app.get("/health")
@@ -50,6 +66,7 @@ def health():
 
 @app.get("/wake")
 def wake():
+    """Lightweight wake endpoint for cold starts."""
     return {"status": "awake"}
 
 

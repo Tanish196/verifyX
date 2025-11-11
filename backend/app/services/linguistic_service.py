@@ -24,24 +24,13 @@ CACHE_SIZE = 1000  # Number of items to cache
 # Ensure cache directory exists
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-# Initialize models with type hints
+# Initialize models with type hints (loaded lazily)
 _zero_shot = None
 _sentiment = None
 _model_loaded = False
-_TRANSFORMERS = False
-pipeline = None
 
-# Check for dependencies
-try:
-    from transformers import pipeline  # type: ignore
-    import torch  # type: ignore
-    from torch import device as torch_device  # type: ignore
-    _TRANSFORMERS = True
-except ImportError as e:
-    logger.warning(f"Transformers not available: {e}")
-    _TRANSFORMERS = False
-    pipeline = None
-    torch_device = None
+# Note: torch and transformers are lazy-loaded on first use, not at module import
+# This prevents heavy ML library loading during server startup
 
 # Predefined patterns and keywords
 MANIPULATION_KEYWORDS = {
@@ -63,6 +52,26 @@ SENTIMENT_LABELS = ["negative", "neutral", "positive"]
 # Minimum confidence for a label to be considered a signal
 SIGNAL_THRESHOLD = 0.5
 
+
+@lru_cache(maxsize=1)
+def _get_transformers_lib():
+    """
+    Lazy-load transformers and torch. Cached to import only once.
+    Returns (pipeline_func, torch_module, available: bool)
+    """
+    try:
+        logger.info("[LAZY LOAD] Importing transformers library...")
+        start = time.time()
+        from transformers import pipeline as transformers_pipeline  # type: ignore
+        import torch  # type: ignore
+        elapsed = time.time() - start
+        logger.info(f"[LAZY LOAD] Transformers imported in {elapsed:.2f}s")
+        return transformers_pipeline, torch, True
+    except ImportError as e:
+        logger.warning(f"Transformers not available: {e}")
+        return None, None, False
+
+
 def _load_models(device: Optional[str] = None) -> Tuple[bool, str]:
     """
     Load NLP models for text analysis.
@@ -73,25 +82,15 @@ def _load_models(device: Optional[str] = None) -> Tuple[bool, str]:
     Returns:
         Tuple of (success: bool, message: str)
     """
-    global _zero_shot, _sentiment, _model_loaded, _TRANSFORMERS, pipeline
+    global _zero_shot, _sentiment, _model_loaded
     
-    # Re-check transformers availability
-    if not _TRANSFORMERS:
-        try:
-            from transformers import pipeline as transformers_pipeline  # type: ignore
-            import torch  # type: ignore
-            from torch import device as torch_device  # type: ignore
-            pipeline = transformers_pipeline
-            _TRANSFORMERS = True
-        except ImportError as e:
-            logger.error(f"Failed to import transformers: {e}")
-            return False, "Transformers library not available"
-    
-    if not pipeline:
-        return False, "Failed to initialize pipeline"
-        
     if _model_loaded:
         return True, "Models already loaded"
+    
+    # Lazy-load transformers
+    pipeline_func, torch_module, available = _get_transformers_lib()
+    if not available:
+        return False, "Transformers library not available"
     
     try:
         # Determine device
@@ -110,11 +109,14 @@ def _load_models(device: Optional[str] = None) -> Tuple[bool, str]:
     
         logger.info(f"Loading NLP models on {device}...")
         
+        # Lazy-load dependencies if not already done
+        pipeline_func, torch_module, _ = _get_transformers_lib()
+        
         # Initialize device mapping
-        device_id = 0 if device == "cuda" and torch.cuda.is_available() else -1
+        device_id = 0 if device == "cuda" and torch_module.cuda.is_available() else -1  # type: ignore[union-attr]
         
         # Load zero-shot classification model
-        _zero_shot = pipeline(
+        _zero_shot = pipeline_func(  # type: ignore[misc]
             task="zero-shot-classification",
             model=MODEL_NAMES['zero_shot'],
             device=device_id,
@@ -124,7 +126,7 @@ def _load_models(device: Optional[str] = None) -> Tuple[bool, str]:
         )
         
         # Load sentiment analysis model
-        _sentiment = pipeline(
+        _sentiment = pipeline_func(  # type: ignore[misc]
             task="text-classification",  # Changed from "sentiment-analysis" to "text-classification"
             model=MODEL_NAMES['sentiment'],
             device=device_id,
@@ -295,8 +297,8 @@ def analyze_text(text: str) -> LinguisticResponse:
     """
     start_time = time.time()
     
-    # Initialize models if needed
-    if _TRANSFORMERS and (_zero_shot is None or _sentiment is None):
+    # Initialize models if needed (lazy-load on first use)
+    if _zero_shot is None or _sentiment is None:
         success, msg = _load_models()
         if not success:
             logger.warning(f"Using fallback analysis: {msg}")

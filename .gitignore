@@ -49,4 +49,4 @@ logs/
 # Misc
 *.sqlite3
 *.db
-.md
+*.md
