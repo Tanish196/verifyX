@@ -135,7 +135,7 @@ Successfully built a complete Next.js landing page for verifyX with all requeste
 
 #### Environment Variables (`.env.local.example`)
 ```env
-NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_API_BASE_URL=https://verifyx-2kqa.onrender.com
 ```
 
 #### TypeScript Config (`tsconfig.json`)
