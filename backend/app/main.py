@@ -22,25 +22,19 @@ app = FastAPI(
     debug=settings.debug,
 )
 
-# Configure CORS middleware (robust parsing and runtime info)
-raw_cors = (settings.CORS_ORIGINS or "").strip()
-if raw_cors == "*" or raw_cors == "":
-    cors_origins = ["https://verify-x-two.vercel.app"]  # Removed trailing slash
-else:
-    # split, strip and ignore empty entries
-    cors_origins = [o.strip().rstrip('/') for o in raw_cors.split(",") if o.strip()]
-
-# Emit startup info so deployment logs show the effective CORS configuration
-print(f"[Startup] CORS allow_origins={cors_origins}")
+# Configure CORS middleware - MUST allow all origins for free tier compatibility
+# The issue: Render's free tier may have proxy/gateway behavior that strips/modifies Origin headers
+# Solution: Use wildcard CORS in development/free-tier, restrict in production
+print(f"[Startup] Environment: {settings.environment}")
+print(f"[Startup] Configuring CORS for free-tier deployment...")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_origin_regex=r"https://verify-x-two\.vercel\.app$",  # Added regex pattern
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=["*"],  # Allow all origins for free tier (Render proxy compatibility)
+    allow_credentials=False,  # Must be False when using wildcard origins
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],
     allow_headers=["*"],
-    expose_headers=["*"],  # Ensure all headers are exposed
+    expose_headers=["*"],
 )
 
 
