@@ -1,6 +1,6 @@
 // API client for verifyX backend
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000'
+const API_BASE_URL = "https://verifyx-2kqa.onrender.com"
 
 export interface LinguisticResponse {
   agent_id: string
