@@ -54,6 +54,11 @@ def health():
     }
 
 
+@app.get("/wake")
+def wake():
+    return {"status": "awake"}
+
+
 @app.get("/debug/config")
 def debug_config(request: Request):
     """Debug endpoint to check configuration.

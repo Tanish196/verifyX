@@ -124,21 +124,21 @@ async function requestWithRetry<T>(
 }
 
 /**
- * Ensure the backend is awake by pinging /health with retries.
+ * Ensure the backend is awake by pinging /wake with retries.
  * This is useful for free-tier hosts that sleep inactive instances.
  */
-async function ensureServerAwake(retries = 4, timeoutMs = 5000): Promise<boolean> {
-  const healthUrl = `${API_BASE_URL}/health`
+async function ensureServerAwake(retries = 5, timeoutMs = 8000): Promise<boolean> {
+  const wakeUrl = `${API_BASE_URL}/wake`
   let attempt = 0
   while (attempt < retries) {
     try {
-      const resp = await fetchWithTimeout<{ status: string }>(healthUrl, { method: 'GET' }, timeoutMs)
-      if (resp && resp.status === 'ok') return true
+      const resp = await fetchWithTimeout<{ status: string }>(wakeUrl, { method: 'GET' }, timeoutMs)
+      if (resp && resp.status === 'awake') return true
     } catch (err) {
       // ignore and retry
     }
-    // wait before next attempt (increasing)
-    await wait(1000 + attempt * 1000)
+    // wait before next attempt (increasing backoff for cold start)
+    await wait(2000 + attempt * 2000)
     attempt += 1
   }
   return false
