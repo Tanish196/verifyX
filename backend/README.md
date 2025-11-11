@@ -61,7 +61,9 @@ ENABLE_TRANSFORMERS=true
 ENABLE_TORCH=true
 
 # CORS Settings
-CORS_ORIGINS=*
+# Recommended: include your deployed frontend origin(s). Example allows the Vercel landing
+# and local development on localhost:3000. In production, restrict this to only trusted origins.
+CORS_ORIGINS=https://verify-x-two.vercel.app,http://127.0.0.1:3000
 
 # Processing Limits
 MAX_TEXT_LENGTH=10000
@@ -267,7 +269,7 @@ All configuration is managed through environment variables in `.env`:
 | `FACT_CHECK_API_KEY` | None | Google Fact Check API key |
 | `ENABLE_TRANSFORMERS` | true | Enable ML transformer models |
 | `ENABLE_TORCH` | true | Enable PyTorch operations |
-| `CORS_ORIGINS` | * | Allowed CORS origins (comma-separated) |
+| `CORS_ORIGINS` | https://verify-x-two.vercel.app | Allowed CORS origins (comma-separated) |
 | `MAX_TEXT_LENGTH` | 10000 | Max text length for analysis |
 | `MAX_IMAGES` | 10 | Max images to process |
 | `CACHE_DIR` | ~/.cache/verifyx | Model cache directory |

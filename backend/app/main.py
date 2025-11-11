@@ -22,12 +22,16 @@ app = FastAPI(
     debug=settings.debug,
 )
 
-# Configure CORS middleware
-cors_origins = (
-    settings.CORS_ORIGINS.split(",") 
-    if settings.CORS_ORIGINS != "*" 
-    else ["*"]
-)
+# Configure CORS middleware (robust parsing and runtime info)
+raw_cors = (settings.CORS_ORIGINS or "").strip()
+if raw_cors == "*" or raw_cors == "":
+    cors_origins = ["https://verify-x-two.vercel.app/"]
+else:
+    # split, strip and ignore empty entries
+    cors_origins = [o.strip() for o in raw_cors.split(",") if o.strip()]
+
+# Emit startup info so deployment logs show the effective CORS configuration
+print(f"[Startup] CORS allow_origins={cors_origins}")
 
 app.add_middleware(
     CORSMiddleware,
