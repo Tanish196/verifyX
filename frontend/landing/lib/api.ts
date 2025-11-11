@@ -1,6 +1,9 @@
 // API client for verifyX backend
 
-const API_BASE_URL = "https://verifyx-2kqa.onrender.com"
+const API_BASE_URL =
+  // prefer environment variable when available (Next.js/NX/Vite expose NEXT_PUBLIC_*)
+  (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_BASE_URL) ||
+  'https://verifyx-2kqa.onrender.com'
 
 export interface LinguisticResponse {
   agent_id: string
@@ -87,8 +90,62 @@ async function fetchWithTimeout<T>(
   }
 }
 
+function wait(ms: number) {
+  return new Promise((res) => setTimeout(res, ms))
+}
+
+async function requestWithRetry<T>(
+  url: string,
+  options: RequestInit,
+  timeoutMs = 30000,
+  maxRetries = 3
+): Promise<T> {
+  let attempt = 0
+  let lastError: any = null
+
+  while (attempt <= maxRetries) {
+    try {
+      return await fetchWithTimeout<T>(url, options, timeoutMs)
+    } catch (err: any) {
+      lastError = err
+      // If it's the final attempt, throw
+      if (attempt === maxRetries) break
+
+      // For network errors / 5xx / aborts, wait with exponential backoff and retry
+      const backoff = Math.min(2000 * Math.pow(2, attempt), 10000)
+      // small jitter
+      const jitter = Math.floor(Math.random() * 300)
+      await wait(backoff + jitter)
+      attempt += 1
+    }
+  }
+
+  throw lastError
+}
+
+/**
+ * Ensure the backend is awake by pinging /health with retries.
+ * This is useful for free-tier hosts that sleep inactive instances.
+ */
+async function ensureServerAwake(retries = 4, timeoutMs = 5000): Promise<boolean> {
+  const healthUrl = `${API_BASE_URL}/health`
+  let attempt = 0
+  while (attempt < retries) {
+    try {
+      const resp = await fetchWithTimeout<{ status: string }>(healthUrl, { method: 'GET' }, timeoutMs)
+      if (resp && resp.status === 'ok') return true
+    } catch (err) {
+      // ignore and retry
+    }
+    // wait before next attempt (increasing)
+    await wait(1000 + attempt * 1000)
+    attempt += 1
+  }
+  return false
+}
+
 export async function analyzeLinguistic(text: string): Promise<LinguisticResponse> {
-  return fetchWithTimeout<LinguisticResponse>(
+  return requestWithRetry<LinguisticResponse>(
     `${API_BASE_URL}/linguistic`,
     {
       method: 'POST',
@@ -99,7 +156,7 @@ export async function analyzeLinguistic(text: string): Promise<LinguisticRespons
 }
 
 export async function checkEvidence(text: string): Promise<EvidenceResponse> {
-  return fetchWithTimeout<EvidenceResponse>(
+  return requestWithRetry<EvidenceResponse>(
     `${API_BASE_URL}/evidence`,
     {
       method: 'POST',
@@ -110,13 +167,15 @@ export async function checkEvidence(text: string): Promise<EvidenceResponse> {
 }
 
 export async function analyzeVisual(text: string, images: string[]): Promise<VisualResponse> {
-  return fetchWithTimeout<VisualResponse>(
+  return requestWithRetry<VisualResponse>(
     `${API_BASE_URL}/visual`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, images }),
-    }
+    },
+    60000,
+    4
   )
 }
 
@@ -126,7 +185,7 @@ export async function synthesizeResults(
   evidence: EvidenceResponse,
   visual?: VisualResponse
 ): Promise<SynthesisResponse> {
-  return fetchWithTimeout<SynthesisResponse>(
+  return requestWithRetry<SynthesisResponse>(
     `${API_BASE_URL}/synthesize`,
     {
       method: 'POST',
@@ -137,7 +196,9 @@ export async function synthesizeResults(
         evidence,
         visual,
       }),
-    }
+    },
+    60000,
+    4
   )
 }
 
@@ -145,6 +206,12 @@ export async function verifyContent(
   text: string,
   images: string[] = []
 ): Promise<VerificationResult> {
+  // Try to ensure the backend is awake first (helps with free-tier sleeping hosts)
+  const awake = await ensureServerAwake()
+  if (!awake) {
+    throw new Error('Backend did not respond to health checks; please try again in a few seconds')
+  }
+
   // Run linguistic, evidence, and visual checks in parallel
   const [linguisticResult, evidenceResult, visualResult] = await Promise.all([
     analyzeLinguistic(text),
