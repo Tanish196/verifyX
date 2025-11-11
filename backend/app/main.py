@@ -5,6 +5,7 @@ Multi-agent AI verification system for content authenticity.
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import logging
 
 from app.config import settings
 from app.routes.linguistic import router as linguistic_router
@@ -13,6 +14,9 @@ from app.routes.visual import router as visual_router
 from app.routes.synth import router as synth_router
 from fastapi import Request, HTTPException
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -22,25 +26,41 @@ app = FastAPI(
     debug=settings.debug,
 )
 
-# Configure CORS middleware - MUST allow all origins for free tier compatibility
-# The issue: Render's free tier may have proxy/gateway behavior that strips/modifies Origin headers
-# Solution: Use wildcard CORS in development/free-tier, restrict in production
+@app.on_event("startup")
+async def startup_event():
+    """Log startup configuration and ready status."""
+    logger.info("=" * 60)
+    logger.info("VerifyX Backend Starting")
+    logger.info("=" * 60)
+    logger.info(f"Environment: {settings.environment}")
+    logger.info(f"CORS: Enabled for Vercel + localhost")
+    logger.info(f"Lazy Loading: Enabled (models load on first request)")
+    logger.info(f"Warmup endpoint: /warmup (call after deployment)")
+    logger.info("=" * 60)
+    logger.info("Server ready - awaiting requests")
+    logger.info("=" * 60)
+
+# === CORS CONFIGURATION FOR RENDER + VERCEL ===
+# Configure CORS to allow requests from Vercel frontend and local development
 print(f"[Startup] Environment: {settings.environment}")
-print(f"[Startup] Configuring CORS for free-tier deployment...")
+print(f"[Startup] Configured CORS for Render + Vercel")
+print(f"[Startup] Lazy loading enabled for NLP and CLIP")
 
 allowed_origins = [
-    "https://verify-x-two.vercel.app",  # Frontend (Vercel)
-    "http://localhost:3000",            # Local dev
-    "http://127.0.0.1:3000",
+    "https://verify-x-two.vercel.app",  # Production frontend (Vercel)
+    "http://localhost:3000",            # Local dev (Next.js)
+    "http://127.0.0.1:3000",            # Local dev (alternative)
+    "http://localhost:5173",            # Local dev (Vite)
+    "*",                                # Fallback for Render proxy
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,  # Allow all origins for free tier (Render proxy compatibility)
-    allow_credentials=False,  # Must be False when using wildcard origins
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
+    allow_origins=allowed_origins,
+    allow_credentials=False,  # Allow credentials for authenticated requests
+    allow_methods=["*"],     # Allow all HTTP methods
+    allow_headers=["*"],     # Allow all headers
+    expose_headers=["*"],    # Expose all headers to frontend
 )
 
 
@@ -64,10 +84,95 @@ def health():
     }
 
 
+@app.options("/{full_path:path}")
+async def options_handler(full_path: str):
+    """
+    Handle CORS preflight OPTIONS requests for all routes.
+    Ensures preflight requests return 200 OK.
+    """
+    return {"status": "ok"}
+
+
 @app.get("/wake")
 def wake():
     """Lightweight wake endpoint for cold starts."""
     return {"status": "awake"}
+
+
+@app.get("/warmup")
+async def warmup():
+    """
+    Warmup endpoint to preload all lazy-loaded models on startup.
+    Call this immediately after deployment to avoid 502 errors on first user request.
+    
+    Recommended Render start command:
+    uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    
+    Then call via:
+    curl -s https://verifyx-2kqa.onrender.com/warmup
+    
+    Or use Render's post-deploy hook.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    results = {
+        "status": "loading",
+        "linguistic": "not loaded",
+        "visual": "not loaded",
+        "errors": []
+    }
+    
+    # Preload linguistic service models (transformers, torch)
+    try:
+        from app.services import linguistic_service
+        logger.info("[WARMUP] Preloading linguistic models...")
+        
+        # Trigger lazy load by calling the load function
+        success, msg = linguistic_service._load_models()
+        if success:
+            results["linguistic"] = "loaded"
+            logger.info("[WARMUP] Linguistic models loaded successfully")
+        else:
+            results["linguistic"] = f"failed: {msg}"
+            results["errors"].append(f"Linguistic: {msg}")
+            logger.warning(f"[WARMUP] Linguistic models failed: {msg}")
+    except Exception as e:
+        results["linguistic"] = f"error: {str(e)}"
+        results["errors"].append(f"Linguistic error: {str(e)}")
+        logger.error(f"[WARMUP] Linguistic error: {e}", exc_info=True)
+    
+    # Preload visual service models (CLIP, PIL)
+    try:
+        from app.services import visual_service
+        logger.info("[WARMUP] Preloading visual models...")
+        
+        # Trigger lazy load by calling the load function
+        success, msg = visual_service._load_clip()
+        if success:
+            results["visual"] = "loaded"
+            logger.info("[WARMUP] Visual models loaded successfully")
+        else:
+            results["visual"] = f"failed: {msg}"
+            results["errors"].append(f"Visual: {msg}")
+            logger.warning(f"[WARMUP] Visual models failed: {msg}")
+    except Exception as e:
+        results["visual"] = f"error: {str(e)}"
+        results["errors"].append(f"Visual error: {str(e)}")
+        logger.error(f"[WARMUP] Visual error: {e}", exc_info=True)
+    
+    # Set overall status
+    if results["linguistic"] == "loaded" and results["visual"] == "loaded":
+        results["status"] = "models loaded"
+        logger.info("[WARMUP] ✅ All models preloaded successfully")
+    elif results["errors"]:
+        results["status"] = "error"
+        logger.warning(f"[WARMUP] ⚠️ Warmup completed with errors: {results['errors']}")
+    else:
+        results["status"] = "partial"
+        logger.warning("[WARMUP] ⚠️ Some models failed to load")
+    
+    return results
 
 
 @app.get("/debug/config")
