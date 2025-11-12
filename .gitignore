@@ -58,3 +58,9 @@ backend/README_OLD.md
 backend/app/services/*.backup
 *.db
 *.md
+
+# Hugging Face cleanup
+Dockerfile
+.dockerignore
+scripts/
+tests/

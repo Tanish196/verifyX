@@ -1,7 +1,7 @@
-# Multi-stage build for smaller final image
+# Multi-stage build for Hugging Face Spaces deployment
 FROM python:3.11-slim as builder
 
-# Install build dependencies
+# Install build dependencies for svglib, reportlab, and ML libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     pkg-config \
@@ -28,10 +28,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcairo2 \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
+    libharfbuzz0b \
     libjpeg62-turbo \
     zlib1g \
     libxml2 \
     libxslt1.1 \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -43,8 +45,8 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application code
 COPY . .
 
-# Expose port (Render sets $PORT at runtime)
-EXPOSE 8000
+# Expose port 7860 for Hugging Face Spaces
+EXPOSE 7860
 
-# Use gunicorn with uvicorn workers for production
-CMD gunicorn -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:${PORT:-8000} --workers 1 --timeout 120
+# Run the FastAPI app using the app.py entry point
+CMD ["python", "app.py"]

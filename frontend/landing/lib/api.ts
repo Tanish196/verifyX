@@ -1,9 +1,8 @@
 // API client for verifyX backend
 
 const API_BASE_URL =
-  // prefer environment variable when available (Next.js/NX/Vite expose NEXT_PUBLIC_*)
   (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_API_BASE_URL) ||
-  'https://verifyx-2kqa.onrender.com'
+  "https://redpanda2005-verifyx-backend.hf.space"
 
 export interface LinguisticResponse {
   agent_id: string
