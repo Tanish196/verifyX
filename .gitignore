@@ -48,5 +48,13 @@ logs/
 
 # Misc
 *.sqlite3
+
+# Render-specific (not needed for Hugging Face Spaces)
+render.yaml
+.render-build/
+
+# Old backups
+backend/README_OLD.md
+backend/app/services/*.backup
 *.db
 *.md

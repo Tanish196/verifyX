@@ -30,20 +30,20 @@ app = FastAPI(
 async def startup_event():
     """Log startup configuration and ready status."""
     logger.info("=" * 60)
-    logger.info("VerifyX Backend Starting")
+    logger.info("🚀 VerifyX Backend Starting on Hugging Face Spaces")
     logger.info("=" * 60)
     logger.info(f"Environment: {settings.environment}")
     logger.info(f"CORS: Enabled for Vercel + localhost")
     logger.info(f"Lazy Loading: Enabled (models load on first request)")
     logger.info(f"Warmup endpoint: /warmup (call after deployment)")
     logger.info("=" * 60)
-    logger.info("Server ready - awaiting requests")
+    logger.info("✅ Server ready - awaiting requests")
     logger.info("=" * 60)
 
-# === CORS CONFIGURATION FOR RENDER + VERCEL ===
+# === CORS CONFIGURATION FOR HUGGING FACE SPACES + VERCEL ===
 # Configure CORS to allow requests from Vercel frontend and local development
 print(f"[Startup] Environment: {settings.environment}")
-print(f"[Startup] Configured CORS for Render + Vercel")
+print(f"[Startup] Configured CORS for Hugging Face Spaces + Vercel")
 print(f"[Startup] Lazy loading enabled for NLP and CLIP")
 
 allowed_origins = [
@@ -66,11 +66,12 @@ app.add_middleware(
 
 @app.get("/")
 def root():
-    """Root endpoint for Render health checks."""
+    """Root endpoint for health checks."""
     return {
         "status": "ok",
-        "message": "VerifyX backend live",
+        "message": "VerifyX backend live on Hugging Face Spaces",
         "version": "1.0.0",
+        "platform": "huggingface",
     }
 
 
@@ -103,15 +104,16 @@ def wake():
 async def warmup():
     """
     Warmup endpoint to preload all lazy-loaded models on startup.
-    Call this immediately after deployment to avoid 502 errors on first user request.
+    Call this immediately after deployment to avoid slow first requests.
     
-    Recommended Render start command:
-    uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    Usage:
+    curl -s https://YOUR-USERNAME-verifyx.hf.space/warmup
     
-    Then call via:
-    curl -s https://verifyx-2kqa.onrender.com/warmup
+    This preloads:
+    - Linguistic models (BART, DistilBERT)
+    - Visual models (CLIP, PIL)
     
-    Or use Render's post-deploy hook.
+    Models are cached after first load for fast subsequent requests.
     """
     import logging
     logger = logging.getLogger(__name__)
