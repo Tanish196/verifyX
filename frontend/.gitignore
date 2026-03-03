@@ -9,9 +9,11 @@ build/
 out/
 .vite/
 
+
 # Environment files
 .env
-.env.*
+!.env.example
+
 
 # Editor/OS
 .DS_Store

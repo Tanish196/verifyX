@@ -13,9 +13,10 @@ __pycache__/
 pip-log.txt
 pip-delete-this-directory.txt
 
+
 # Environments and secrets
 .env
-.env.*
+!.env.example
 .env.local
 
 # VS Code

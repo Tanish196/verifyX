@@ -1,7 +1,7 @@
 // API Configuration
-// Use Vite env variable `VITE_API_BASE_URL` when provided, otherwise fall back to localhost for development.
-// This allows build-time configurability for production deployments.
-export const API_BASE_URL: string = (import.meta.env && (import.meta.env.VITE_API_BASE_URL as string)) || "https://redpanda2005-verifyx-backend.hf.space/" || 'http://127.0.0.1:8000'
+// Set VITE_API_BASE_URL in your .env file to configure the backend URL.
+// Falls back to localhost for development if the variable is not set.
+export const API_BASE_URL: string = (import.meta.env.VITE_API_BASE_URL as string) || 'http://127.0.0.1:8000'
 
 // API Endpoints
 export const ENDPOINTS = {
