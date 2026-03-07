@@ -12,7 +12,7 @@ interface EvidenceCardProps {
 
 interface ClaimGroup {
   claim: string
-  sources: { title?: string; source: string | null; url: string | null; verdict: string }[]
+  sources: { title?: string; source: string | null; url: string | null; verdict: string; confidence: number }[]
 }
 
 function groupByClaim(facts: FactItem[]): ClaimGroup[] {
@@ -26,10 +26,26 @@ function groupByClaim(facts: FactItem[]): ClaimGroup[] {
         source: fact.source,
         url: fact.url,
         verdict: fact.verdict,
+        confidence: fact.confidence,
       })
     }
   }
   return Array.from(map.values())
+}
+
+function StanceBadge({ verdict }: { verdict: string }) {
+  const v = verdict.toLowerCase()
+  const cfg =
+    v === 'supports'
+      ? { bg: 'bg-green-100 text-green-700', label: 'supports' }
+      : v === 'refutes'
+      ? { bg: 'bg-red-100 text-red-700', label: 'refutes' }
+      : { bg: 'bg-gray-100 text-gray-600', label: 'neutral' }
+  return (
+    <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${cfg.bg}`}>
+      {cfg.label}
+    </span>
+  )
 }
 
 function openLink(url: string) {
@@ -85,6 +101,38 @@ const EvidenceCard: React.FC<EvidenceCardProps> = ({ status, score, factsChecked
         </div>
       )}
 
+      {/* Stance summary */}
+      {(factsChecked ?? []).length > 0 && (() => {
+        const all = factsChecked ?? []
+        const counts = { supports: 0, refutes: 0, neutral: 0, other: 0 }
+        for (const f of all) {
+          const v = f.verdict.toLowerCase()
+          if (v === 'supports') counts.supports++
+          else if (v === 'refutes') counts.refutes++
+          else if (v === 'neutral') counts.neutral++
+          else counts.other++
+        }
+        return (
+          <div className="mt-3 flex gap-2 flex-wrap">
+            {counts.supports > 0 && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-semibold">
+                ✓ {counts.supports} support{counts.supports !== 1 ? 's' : ''}
+              </span>
+            )}
+            {counts.refutes > 0 && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">
+                ✗ {counts.refutes} refut{counts.refutes !== 1 ? 'es' : 'e'}
+              </span>
+            )}
+            {counts.neutral > 0 && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-semibold">
+                ~ {counts.neutral} neutral
+              </span>
+            )}
+          </div>
+        )
+      })()}
+
       {/* Claims + sources */}
       {groups.length > 0 && (
         <div className="mt-3 space-y-3">
@@ -97,17 +145,25 @@ const EvidenceCard: React.FC<EvidenceCardProps> = ({ status, score, factsChecked
 
               {/* Top 3 source links */}
               {group.sources.length > 0 ? (
-                <ul className="space-y-1">
+                <ul className="space-y-1.5">
                   {group.sources.slice(0, 3).map((src, si) => (
-                    <li key={si} className="flex items-start gap-1">
-                      <span className="text-purple-500 mt-0.5 shrink-0">›</span>
-                      <button
-                        onClick={() => src.url && openLink(src.url)}
-                        className="text-left text-xs text-blue-600 hover:text-blue-800 hover:underline break-all"
-                        title={src.url ?? ''}
-                      >
-                        {src.source || src.url}
-                      </button>
+                    <li key={si} className="flex flex-col gap-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <StanceBadge verdict={src.verdict} />
+                        <span className="text-[10px] text-gray-400">
+                          {(src.confidence * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                      <div className="flex items-start gap-1">
+                        <span className="text-purple-500 mt-0.5 shrink-0">›</span>
+                        <button
+                          onClick={() => src.url && openLink(src.url)}
+                          className="text-left text-xs text-blue-600 hover:text-blue-800 hover:underline break-all"
+                          title={src.url ?? ''}
+                        >
+                          {src.source || src.url}
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>
