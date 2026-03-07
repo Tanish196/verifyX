@@ -16,13 +16,6 @@ export default function ResultSection({ result }: ResultSectionProps) {
     return 'from-red-500 to-rose-600'
   }
 
-  const getVerdictEmoji = (confidence: number) => {
-    if (confidence >= 0.8) return '✅'
-    if (confidence >= 0.6) return '👍'
-    if (confidence >= 0.4) return '⚠️'
-    return '❌'
-  }
-
   const getVerdictText = (verdict: string) => {
     return verdict.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())
   }
@@ -35,13 +28,25 @@ export default function ResultSection({ result }: ResultSectionProps) {
   const avgSim = visual?.average_similarity ?? 0
   const matches = visual?.matches ?? []
 
+  // stance breakdown
+  const stanceCounts = factChecks.reduce(
+    (acc, f) => {
+      const v = (f.verdict ?? '').toLowerCase()
+      if (v === 'supports') acc.supports++
+      else if (v === 'refutes') acc.refutes++
+      else acc.neutral++
+      return acc
+    },
+    { supports: 0, refutes: 0, neutral: 0 }
+  )
+  const stanceTotal = Math.max(1, factChecks.length)
+
   return (
     <div className="mt-12 space-y-6 animate-fadeIn">
       {/* Main Verdict Card */}
       <div className={`bg-linear-to-r ${getVerdictColor(synthesis.confidence)} rounded-2xl p-8 text-white shadow-2xl`}>
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-3xl font-bold">Final Verdict</h3>
-          <span className="text-6xl">{getVerdictEmoji(synthesis.confidence)}</span>
         </div>
 
         <div className="space-y-4">
@@ -147,16 +152,74 @@ export default function ResultSection({ result }: ResultSectionProps) {
                 </span>
               </div>
             </div>
-            {(factChecks.length ?? 0) > 0 && (
+
+            {/* Stance breakdown */}
+            {factChecks.length > 0 && (
               <div>
-                <p className="text-xs text-gray-500 uppercase mb-1">Fact Checks Found</p>
-                <p className="text-sm font-medium text-gray-900">{factChecks.length} source(s)</p>
-                <div className="space-y-1 mt-2">
-                  {factChecks.slice(0, 2).map((check, idx) => (
-                    <div key={idx} className="text-xs text-gray-700 truncate">
-                      • {check.verdict || 'Unknown'}: {String(check.claim ?? '').slice(0, 40)}...
-                    </div>
-                  ))}
+                <p className="text-xs text-gray-500 uppercase mb-2">Stance Breakdown</p>
+                <div className="space-y-1.5">
+                  {[
+                    { key: 'supports', label: '✓ Supports', color: 'bg-green-500', text: 'text-green-700', pill: 'bg-green-100 text-green-700' },
+                    { key: 'refutes',  label: '✗ Refutes',  color: 'bg-red-500',   text: 'text-red-700',   pill: 'bg-red-100 text-red-700' },
+                    { key: 'neutral',  label: '~ Neutral',  color: 'bg-gray-400',  text: 'text-gray-600',  pill: 'bg-gray-100 text-gray-600' },
+                  ].map(({ key, label, color, text, pill }) => {
+                    const count = stanceCounts[key as keyof typeof stanceCounts]
+                    return (
+                      <div key={key} className="flex items-center gap-2">
+                        <span className={`text-[10px] font-semibold w-16 shrink-0 ${text}`}>{label}</span>
+                        <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                          <div
+                            className={`${color} h-1.5 rounded-full transition-all duration-700`}
+                            style={{ width: `${(count / stanceTotal) * 100}%` }}
+                          />
+                        </div>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${pill}`}>{count}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Per-fact list */}
+            {factChecks.length > 0 && (
+              <div>
+                <p className="text-xs text-gray-500 uppercase mb-1">Evidence Sources</p>
+                <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                  {factChecks.slice(0, 6).map((check, idx) => {
+                    const v = (check.verdict ?? '').toLowerCase()
+                    const badge =
+                      v === 'supports'
+                        ? 'bg-green-100 text-green-700'
+                        : v === 'refutes'
+                        ? 'bg-red-100 text-red-700'
+                        : 'bg-gray-100 text-gray-600'
+                    return (
+                      <div key={idx} className="rounded border border-gray-100 p-2 bg-gray-50">
+                        <p className="text-xs text-gray-700 leading-snug mb-1 line-clamp-2">
+                          {String(check.claim ?? '').slice(0, 80)}{(check.claim?.length ?? 0) > 80 ? '…' : ''}
+                        </p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${badge}`}>
+                            {check.verdict}
+                          </span>
+                          <span className="text-[10px] text-gray-400">
+                            {(check.confidence * 100).toFixed(0)}% conf
+                          </span>
+                          {check.url && (
+                            <a
+                              href={check.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[10px] text-blue-500 hover:underline truncate max-w-[120px]"
+                            >
+                              {check.source || check.url}
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )}
