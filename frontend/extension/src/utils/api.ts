@@ -26,16 +26,21 @@ export interface EvidenceRequest {
   text: string
 }
 
-export interface EvidenceResponse {
+export interface FactItem {
   claim: string
-  fact_check_results: Array<{
-    claim: string
-    claimant?: string
-    rating?: string
-    url?: string
-    publisher?: string
-  }>
-  credibility_score: number
+  verdict: string
+  source: string | null
+  url: string | null
+  confidence: number
+}
+
+export interface EvidenceResponse {
+  agent_id: string
+  provider: string
+  facts_checked: FactItem[]
+  coverage_ratio: number
+  overall_accuracy_score: number
+  latency_ms: number
 }
 
 export interface VisualRequest {

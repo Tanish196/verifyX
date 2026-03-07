@@ -45,6 +45,7 @@ class Settings:
 
     # External APIs
     FACT_CHECK_API_KEY: Optional[str] = os.getenv("FACT_CHECK_API_KEY")
+    SERPER_API_KEY: Optional[str] = os.getenv("SERPER_API_KEY")
 
     # Feature toggles
     ENABLE_TRANSFORMERS: bool = os.getenv("ENABLE_TRANSFORMERS", "true").lower() == "true"

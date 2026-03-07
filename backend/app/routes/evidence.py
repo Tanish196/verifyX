@@ -1,6 +1,6 @@
 """
 Evidence checking endpoint.
-Verifies claims using Google Fact Check API and RAG fallback.
+Verifies claims using Google Fact Check API, falling back to Serper web evidence retrieval.
 """
 
 from fastapi import APIRouter, HTTPException
@@ -26,6 +26,6 @@ async def evidence_check(payload: EvidenceRequest):
         HTTPException: If evidence checking fails
     """
     try:
-        return check_evidence(payload.text)
+        return await check_evidence(payload.text)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

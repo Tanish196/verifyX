@@ -2,6 +2,7 @@
 import '../index.css'
 import { useState } from 'react'
 import AgentCard from '../components/AgentCard'
+import EvidenceCard from '../components/EvidenceCard'
 import VerdictCard from '../components/VerdictCard'
 import ErrorBanner from '../components/ErrorBanner'
 import { verifyContent } from '../utils/api'
@@ -133,13 +134,10 @@ const Popup: React.FC = () => {
             )}
           />
 
-          <AgentCard
-            name={AGENTS.EVIDENCE}
+          <EvidenceCard
             status={evidenceStatus}
-            score={evidenceResult?.credibility_score}
-            details={(evidenceResult?.fact_check_results || []).map(
-              r => `${r.rating || 'Unknown'}: ${r.claim.slice(0, 50)}...`
-            )}
+            score={evidenceResult?.overall_accuracy_score}
+            factsChecked={evidenceResult?.facts_checked}
           />
 
           <AgentCard

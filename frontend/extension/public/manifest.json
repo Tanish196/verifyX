@@ -9,8 +9,9 @@
         "storage"
     ],
     "host_permissions": [
-        "http://127.0.0.1:8000/",
-        "http://localhost:8000/"
+        "http://127.0.0.1:8000/*",
+        "http://localhost:8000/*",
+        "https://redpanda2005-verifyx-backend.hf.space/*"
     ],
     "action": {
         "default_popup": "src/popup/popup.html",
