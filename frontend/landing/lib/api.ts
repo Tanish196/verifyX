@@ -19,6 +19,20 @@ export interface LinguisticResponse {
   latency_ms: number
 }
 
+export interface EvidenceItem {
+  text: string
+  url?: string
+  stance: string
+  credibility: number
+  rerank_score: number
+}
+
+export interface StanceSummary {
+  support: number
+  refute: number
+  neutral: number
+}
+
 export interface EvidenceResponse {
   agent_id: string
   provider: string
@@ -30,8 +44,13 @@ export interface EvidenceResponse {
     confidence: number
   }>
   coverage_ratio: number
+  /** Weighted credibility score (deterministic) */
   overall_accuracy_score: number
   latency_ms: number
+  /** Same as overall_accuracy_score — prefer this for display */
+  score?: number
+  stance_summary?: StanceSummary
+  evidence?: EvidenceItem[]
 }
 
 export interface ImageMatch {

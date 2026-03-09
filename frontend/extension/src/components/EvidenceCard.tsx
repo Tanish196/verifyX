@@ -2,17 +2,19 @@
 import React from 'react'
 import { type Status } from '../utils/constants'
 import Loader from './Loader'
-import type { FactItem } from '../utils/api'
+import type { FactItem, EvidenceItem, StanceSummary } from '../utils/api'
 
 interface EvidenceCardProps {
   status: Status
   score?: number
   factsChecked?: FactItem[]
+  stanceSummary?: StanceSummary
+  evidenceItems?: EvidenceItem[]
 }
 
 interface ClaimGroup {
   claim: string
-  sources: { title?: string; source: string | null; url: string | null; verdict: string; confidence: number }[]
+  sources: { source: string | null; url: string | null; verdict: string; confidence: number }[]
 }
 
 function groupByClaim(facts: FactItem[]): ClaimGroup[] {
@@ -33,18 +35,40 @@ function groupByClaim(facts: FactItem[]): ClaimGroup[] {
   return Array.from(map.values())
 }
 
-function StanceBadge({ verdict }: { verdict: string }) {
+/** Normalise new labels ("supports claim", "refutes claim") and legacy ones. */
+function normaliseStance(verdict: string): 'supports' | 'refutes' | 'neutral' {
   const v = verdict.toLowerCase()
+  if (v.startsWith('support')) return 'supports'
+  if (v.startsWith('refute')) return 'refutes'
+  return 'neutral'
+}
+
+function StanceBadge({ verdict }: { verdict: string }) {
+  const norm = normaliseStance(verdict)
   const cfg =
-    v === 'supports'
+    norm === 'supports'
       ? { bg: 'bg-green-100 text-green-700', label: 'supports' }
-      : v === 'refutes'
+      : norm === 'refutes'
       ? { bg: 'bg-red-100 text-red-700', label: 'refutes' }
       : { bg: 'bg-gray-100 text-gray-600', label: 'neutral' }
   return (
     <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${cfg.bg}`}>
       {cfg.label}
     </span>
+  )
+}
+
+function CredibilityDot({ value }: { value: number }) {
+  const color =
+    value >= 0.85 ? 'bg-green-500'
+    : value >= 0.7 ? 'bg-blue-500'
+    : value >= 0.55 ? 'bg-yellow-500'
+    : 'bg-gray-400'
+  return (
+    <span
+      className={`inline-block w-2 h-2 rounded-full ${color} shrink-0`}
+      title={`Credibility: ${(value * 100).toFixed(0)}%`}
+    />
   )
 }
 
@@ -56,7 +80,13 @@ function openLink(url: string) {
   }
 }
 
-const EvidenceCard: React.FC<EvidenceCardProps> = ({ status, score, factsChecked }) => {
+const EvidenceCard: React.FC<EvidenceCardProps> = ({
+  status,
+  score,
+  factsChecked,
+  stanceSummary,
+  evidenceItems,
+}) => {
   const getStatusColor = () => {
     switch (status) {
       case 'loading': return 'bg-yellow-100 border-yellow-400'
@@ -75,7 +105,18 @@ const EvidenceCard: React.FC<EvidenceCardProps> = ({ status, score, factsChecked
     }
   }
 
-  const groups = groupByClaim(factsChecked ?? [])
+  // Prefer server-provided stance_summary; fall back to counting from facts_checked.
+  const counts = (() => {
+    if (stanceSummary) {
+      return { supports: stanceSummary.support, refutes: stanceSummary.refute, neutral: stanceSummary.neutral }
+    }
+    const c = { supports: 0, refutes: 0, neutral: 0 }
+    for (const f of factsChecked ?? []) { c[normaliseStance(f.verdict)]++ }
+    return c
+  })()
+
+  const hasEvidenceItems = (evidenceItems ?? []).length > 0
+  const groups = hasEvidenceItems ? [] : groupByClaim(factsChecked ?? [])
 
   return (
     <div className={`border-2 rounded-lg p-4 transition-all ${getStatusColor()}`}>
@@ -101,49 +142,63 @@ const EvidenceCard: React.FC<EvidenceCardProps> = ({ status, score, factsChecked
         </div>
       )}
 
-      {/* Stance summary */}
-      {(factsChecked ?? []).length > 0 && (() => {
-        const all = factsChecked ?? []
-        const counts = { supports: 0, refutes: 0, neutral: 0, other: 0 }
-        for (const f of all) {
-          const v = f.verdict.toLowerCase()
-          if (v === 'supports') counts.supports++
-          else if (v === 'refutes') counts.refutes++
-          else if (v === 'neutral') counts.neutral++
-          else counts.other++
-        }
-        return (
-          <div className="mt-3 flex gap-2 flex-wrap">
-            {counts.supports > 0 && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-semibold">
-                ✓ {counts.supports} support{counts.supports !== 1 ? 's' : ''}
-              </span>
-            )}
-            {counts.refutes > 0 && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">
-                ✗ {counts.refutes} refut{counts.refutes !== 1 ? 'es' : 'e'}
-              </span>
-            )}
-            {counts.neutral > 0 && (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-semibold">
-                ~ {counts.neutral} neutral
-              </span>
-            )}
-          </div>
-        )
-      })()}
+      {/* Stance summary pills */}
+      {(counts.supports + counts.refutes + counts.neutral) > 0 && (
+        <div className="mt-3 flex gap-2 flex-wrap">
+          {counts.supports > 0 && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-semibold">
+              ✓ {counts.supports} support{counts.supports !== 1 ? 's' : ''}
+            </span>
+          )}
+          {counts.refutes > 0 && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-semibold">
+              ✗ {counts.refutes} refut{counts.refutes !== 1 ? 'es' : 'e'}
+            </span>
+          )}
+          {counts.neutral > 0 && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-semibold">
+              ~ {counts.neutral} neutral
+            </span>
+          )}
+        </div>
+      )}
 
-      {/* Claims + sources */}
-      {groups.length > 0 && (
+      {/* ── New pipeline: rich evidence items with credibility + rerank score ── */}
+      {hasEvidenceItems && (
+        <div className="mt-3 space-y-2">
+          {evidenceItems!.map((item, idx) => (
+            <div key={idx} className="bg-white bg-opacity-60 rounded p-2 space-y-1">
+              <p className="text-xs text-gray-700 leading-snug line-clamp-2">{item.text}</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <StanceBadge verdict={item.stance} />
+                <span className="flex items-center gap-1 text-[10px] text-gray-500">
+                  <CredibilityDot value={item.credibility} />
+                  {(item.credibility * 100).toFixed(0)}% cred
+                </span>
+                <span className="text-[10px] text-gray-400">rank {item.rerank_score.toFixed(2)}</span>
+                {item.url && (
+                  <button
+                    onClick={() => item.url && openLink(item.url)}
+                    className="text-left text-[10px] text-blue-600 hover:underline truncate max-w-[110px]"
+                    title={item.url ?? ''}
+                  >
+                    {(() => { try { return new URL(item.url!).hostname.replace(/^www\./, '') } catch { return item.url } })()}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Legacy pipeline: claim-grouped fact items ── */}
+      {!hasEvidenceItems && groups.length > 0 && (
         <div className="mt-3 space-y-3">
           {groups.map((group, gi) => (
             <div key={gi} className="bg-white bg-opacity-60 rounded p-2">
-              {/* Full claim sentence */}
               <p className="text-xs text-gray-800 font-medium leading-snug mb-1">
                 {group.claim}
               </p>
-
-              {/* Top 3 source links */}
               {group.sources.length > 0 ? (
                 <ul className="space-y-1.5">
                   {group.sources.slice(0, 3).map((src, si) => (

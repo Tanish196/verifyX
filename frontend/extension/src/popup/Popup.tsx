@@ -136,8 +136,10 @@ const Popup: React.FC = () => {
 
           <EvidenceCard
             status={evidenceStatus}
-            score={evidenceResult?.overall_accuracy_score}
+            score={evidenceResult?.score ?? evidenceResult?.overall_accuracy_score}
             factsChecked={evidenceResult?.facts_checked}
+            stanceSummary={evidenceResult?.stance_summary}
+            evidenceItems={evidenceResult?.evidence}
           />
 
           <AgentCard

@@ -8,10 +8,15 @@ logger = logging.getLogger(__name__)
 
 MODEL_NAME = "facebook/bart-large-mnli"
 
-# Hypothesis template for NLI-based zero-shot classification.
-# BART-MNLI interprets: premise=evidence, hypothesis=template.format(label)
-_HYPOTHESIS_TEMPLATE = "This evidence {} the claim."
-_CANDIDATE_LABELS = ["supports", "refutes", "neutral"]
+# Candidate labels for NLI-based zero-shot classification.
+# These are used directly so the model can classify the stance of evidence
+# relative to a claim without a custom hypothesis template.
+_CANDIDATE_LABELS = ["supports claim", "refutes claim", "neutral"]
+
+# NLI hypothesis template interpreted by BART-MNLI as:
+# premise = evidence text + claim context
+# hypothesis = "This evidence {label}."
+_HYPOTHESIS_TEMPLATE = "This evidence {}."
 
 
 @lru_cache(maxsize=1)
@@ -28,17 +33,17 @@ def get_stance_model():
     return classifier
 
 
-def detect_stance(claim: str, evidence: str) -> Dict[str, object]:
-    # Classify whether evidence supports, refutes, or is neutral to claim.
-    if not claim.strip() or not evidence.strip():
-        return {"label": "neutral", "score": 0.0}
+def detect_stance(claim: str, evidence_text: str) -> Dict[str, object]:
+    # Classify whether evidence_text supports, refutes, or is neutral to claim.
+    if not claim.strip() or not evidence_text.strip():
+        return {"stance": "neutral", "confidence": 0.0}
 
     try:
         classifier = get_stance_model()
 
-        # Feed evidence as the NLI premise; the claim is baked into the
-        # hypothesis template so the model reasons about claim ↔ evidence.
-        combined_premise = f"{evidence} [Claim: {claim[:300]}]"
+        # Feed evidence as the NLI premise; the claim is appended so the
+        # model reasons about the claim evidence relationship.
+        combined_premise = f"{evidence_text} [Claim: {claim[:300]}]"
 
         result = classifier(
             combined_premise,
@@ -46,18 +51,18 @@ def detect_stance(claim: str, evidence: str) -> Dict[str, object]:
             hypothesis_template=_HYPOTHESIS_TEMPLATE,
         )
 
-        label: str = result["labels"][0]
-        score: float = round(float(result["scores"][0]), 4)
+        stance: str = result["labels"][0]
+        confidence: float = round(float(result["scores"][0]), 4)
 
         logger.info(
             "stance_detection_complete",
-            extra={"claim": claim[:80], "label": label, "score": score},
+            extra={"claim": claim[:80], "stance": stance, "confidence": confidence},
         )
-        return {"label": label, "score": score}
+        return {"stance": stance, "confidence": confidence}
 
     except Exception as exc:
         logger.error(
             f"Stance detection failed for claim '{claim[:60]}': {exc}; "
             "defaulting to neutral"
         )
-        return {"label": "neutral", "score": 0.0}
+        return {"stance": "neutral", "confidence": 0.0}

@@ -23,23 +23,39 @@ export default function ResultSection({ result }: ResultSectionProps) {
   // safe access helpers
   const manipScore = linguistic?.manipulation_score ?? 0
   const signals = linguistic?.signals ?? []
-  const credibility = evidence?.overall_accuracy_score ?? 0
+  // Prefer the new deterministic `score` field; fall back to overall_accuracy_score.
+  const credibility = evidence?.score ?? evidence?.overall_accuracy_score ?? 0
   const factChecks = evidence?.facts_checked ?? []
+  const richEvidence = evidence?.evidence ?? []
   const avgSim = visual?.average_similarity ?? 0
   const matches = visual?.matches ?? []
 
-  // stance breakdown
-  const stanceCounts = factChecks.reduce(
-    (acc, f) => {
-      const v = (f.verdict ?? '').toLowerCase()
-      if (v === 'supports') acc.supports++
-      else if (v === 'refutes') acc.refutes++
-      else acc.neutral++
-      return acc
-    },
-    { supports: 0, refutes: 0, neutral: 0 }
-  )
-  const stanceTotal = Math.max(1, factChecks.length)
+  /** Normalise new labels ("supports claim", "refutes claim") and legacy ones. */
+  function normaliseStance(verdict: string): 'supports' | 'refutes' | 'neutral' {
+    const v = (verdict ?? '').toLowerCase()
+    if (v.startsWith('support')) return 'supports'
+    if (v.startsWith('refute')) return 'refutes'
+    return 'neutral'
+  }
+
+  // Prefer server-provided stance_summary; fall back to counting from facts_checked.
+  const stanceCounts = (() => {
+    if (evidence?.stance_summary) {
+      return {
+        supports: evidence.stance_summary.support,
+        refutes: evidence.stance_summary.refute,
+        neutral: evidence.stance_summary.neutral,
+      }
+    }
+    return factChecks.reduce(
+      (acc, f) => {
+        acc[normaliseStance(f.verdict ?? '')]++
+        return acc
+      },
+      { supports: 0, refutes: 0, neutral: 0 }
+    )
+  })()
+  const stanceTotal = Math.max(1, stanceCounts.supports + stanceCounts.refutes + stanceCounts.neutral)
 
   return (
     <div className="mt-12 space-y-6 animate-fadeIn">
@@ -182,44 +198,93 @@ export default function ResultSection({ result }: ResultSectionProps) {
             )}
 
             {/* Per-fact list */}
-            {factChecks.length > 0 && (
+            {(richEvidence.length > 0 ? richEvidence : factChecks).length > 0 && (
               <div>
                 <p className="text-xs text-gray-500 uppercase mb-1">Evidence Sources</p>
                 <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
-                  {factChecks.slice(0, 6).map((check, idx) => {
-                    const v = (check.verdict ?? '').toLowerCase()
-                    const badge =
-                      v === 'supports'
-                        ? 'bg-green-100 text-green-700'
-                        : v === 'refutes'
-                        ? 'bg-red-100 text-red-700'
-                        : 'bg-gray-100 text-gray-600'
-                    return (
-                      <div key={idx} className="rounded border border-gray-100 p-2 bg-gray-50">
-                        <p className="text-xs text-gray-700 leading-snug mb-1 line-clamp-2">
-                          {String(check.claim ?? '').slice(0, 80)}{(check.claim?.length ?? 0) > 80 ? '…' : ''}
-                        </p>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${badge}`}>
-                            {check.verdict}
-                          </span>
-                          <span className="text-[10px] text-gray-400">
-                            {(check.confidence * 100).toFixed(0)}% conf
-                          </span>
-                          {check.url && (
-                            <a
-                              href={check.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[10px] text-blue-500 hover:underline truncate max-w-[120px]"
-                            >
-                              {check.source || check.url}
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
+                  {richEvidence.length > 0
+                    ? richEvidence.slice(0, 6).map((item, idx) => {
+                        const norm = normaliseStance(item.stance)
+                        const badge =
+                          norm === 'supports'
+                            ? 'bg-green-100 text-green-700'
+                            : norm === 'refutes'
+                            ? 'bg-red-100 text-red-700'
+                            : 'bg-gray-100 text-gray-600'
+                        const stanceLabel =
+                          norm === 'supports' ? 'supports' : norm === 'refutes' ? 'refutes' : 'neutral'
+                        const credDot =
+                          item.credibility >= 0.85 ? 'bg-green-500'
+                          : item.credibility >= 0.7 ? 'bg-blue-500'
+                          : item.credibility >= 0.55 ? 'bg-yellow-500'
+                          : 'bg-gray-400'
+                        return (
+                          <div key={idx} className="rounded border border-gray-100 p-2 bg-gray-50">
+                            <p className="text-xs text-gray-700 leading-snug mb-1 line-clamp-2">
+                              {item.text}
+                            </p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${badge}`}>
+                                {stanceLabel}
+                              </span>
+                              {/* Credibility */}
+                              <span className="flex items-center gap-1 text-[10px] text-gray-500">
+                                <span className={`inline-block w-1.5 h-1.5 rounded-full ${credDot}`} />
+                                {(item.credibility * 100).toFixed(0)}% cred
+                              </span>
+                              {/* Rerank score */}
+                              <span className="text-[10px] text-gray-400">
+                                rank {item.rerank_score.toFixed(2)}
+                              </span>
+                              {item.url && (
+                                <a
+                                  href={item.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[10px] text-blue-500 hover:underline truncate max-w-[120px]"
+                                >
+                                  {(() => { try { return new URL(item.url).hostname.replace(/^www\./, '') } catch { return item.url } })()}
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })
+                    : factChecks.slice(0, 6).map((check, idx) => {
+                        const norm = normaliseStance(check.verdict ?? '')
+                        const badge =
+                          norm === 'supports'
+                            ? 'bg-green-100 text-green-700'
+                            : norm === 'refutes'
+                            ? 'bg-red-100 text-red-700'
+                            : 'bg-gray-100 text-gray-600'
+                        return (
+                          <div key={idx} className="rounded border border-gray-100 p-2 bg-gray-50">
+                            <p className="text-xs text-gray-700 leading-snug mb-1 line-clamp-2">
+                              {String(check.claim ?? '').slice(0, 80)}{(check.claim?.length ?? 0) > 80 ? '…' : ''}
+                            </p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${badge}`}>
+                                {check.verdict}
+                              </span>
+                              <span className="text-[10px] text-gray-400">
+                                {(check.confidence * 100).toFixed(0)}% conf
+                              </span>
+                              {check.url && (
+                                <a
+                                  href={check.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[10px] text-blue-500 hover:underline truncate max-w-[120px]"
+                                >
+                                  {check.source || check.url}
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })
+                  }
                 </div>
               </div>
             )}

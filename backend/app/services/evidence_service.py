@@ -9,10 +9,12 @@ from urllib.parse import quote_plus, urlparse
 
 import httpx
 
-from app.models.evidence import EvidenceResponse, FactItem
+from app.models.evidence import EvidenceResponse, EvidenceItem, FactItem, StanceSummary
 from app.config import settings
 from app.services.vector_retriever import build_index, search_index
 from app.services.stance_service import detect_stance
+from app.services.rerank_service import rerank_documents
+from app.services.source_credibility import get_source_weight
 
 GOOGLE_FACTCHECK_ENDPOINT = "factchecktools.googleapis.com"
 SERPER_ENDPOINT = "https://google.serper.dev/search"
@@ -108,13 +110,19 @@ def _google_fact_check(claim: str):
 
 async def retrieve_web_evidence(claim: str) -> List[dict]:
     """
-    Retrieve web evidence for a claim using the Serper.dev Google Search API.
+    Retrieve and re-rank web evidence for a claim.
+
+    Pipeline
+    1. Serper.dev Google Search → up to 10 organic results.
+    2. Embedding + FAISS retrieval → top 10 semantically closest snippets.
+    3. Cross-encoder re-ranking → top 3 most relevant documents.
     """
     api_key = settings.SERPER_API_KEY
     if not api_key:
         logger.warning("SERPER_API_KEY not configured; skipping Serper web evidence retrieval")
         return []
 
+    # Step 1 – Serper search
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.post(
@@ -123,7 +131,7 @@ async def retrieve_web_evidence(claim: str) -> List[dict]:
                     "X-API-KEY": api_key,
                     "Content-Type": "application/json",
                 },
-                json={"q": claim[:1000], "num": 10},
+                json={"q": claim[:1000], "num": 5},
             )
             response.raise_for_status()
             data = response.json()
@@ -134,7 +142,7 @@ async def retrieve_web_evidence(claim: str) -> List[dict]:
         logger.error(f"Serper API error for claim '{claim[:60]}': {e}")
         return []
 
-    results = []
+    raw_results: List[dict] = []
     for item in data.get("organic", [])[:10]:
         link = item.get("link", "")
         try:
@@ -142,68 +150,96 @@ async def retrieve_web_evidence(claim: str) -> List[dict]:
         except Exception:
             domain = link
 
-        results.append({
+        snippet = item.get("snippet", "")
+        if not snippet:
+            continue  # skip results without searchable text
+
+        raw_results.append({
+            "text": snippet,
+            "url": link,
             "source": domain,
             "title": item.get("title", ""),
-            "snippet": item.get("snippet", ""),
-            "url": link,
         })
 
-    logger.info("serper_results", extra={"claim": claim[:80], "results": len(results)})
+    if not raw_results:
+        logger.warning(f"Serper returned no usable snippets for claim: {claim[:80]}")
+        return []
 
-    # --- Semantic ranking via FAISS ---
-    # Extract non-empty snippets (up to 10) and rank them by similarity to the
-    # claim.  If anything goes wrong, fall back to the original ordered results.
-    if results:
-        snippets = [r["snippet"] for r in results if r.get("snippet")]
-        if snippets:
-            try:
-                index, _ = build_index(snippets)
-                top_snippets = search_index(
-                    index=index,
-                    query=claim,
-                    docs=snippets,
-                    k=3,
-                )
-                # Map each top snippet back to its original result dict.
-                # First-occurrence wins so duplicate snippets are handled safely.
-                snippet_to_result: dict = {}
-                for r in results:
-                    s = r.get("snippet", "")
-                    if s and s not in snippet_to_result:
-                        snippet_to_result[s] = r
+    logger.info(
+        "serper_results",
+        extra={"claim": claim[:80], "results": len(raw_results)},
+    )
 
-                ranked = [snippet_to_result[s] for s in top_snippets if s in snippet_to_result]
-                if ranked:
-                    logger.info(
-                        f"Vector retrieval returned {len(ranked)} ranked result(s) "
-                        f"for claim: {claim[:60]}"
-                    )
-                    logger.info(
-                        "vector_retrieval_complete",
-                        extra={"snippets": len(snippets)},
-                    )
-                    return ranked
-            except Exception as e:
-                logger.error(
-                    f"Vector retrieval failed for claim '{claim[:60]}'; "
-                    f"falling back to original results. Error: {e}"
-                )
+    # Step 2 – Embedding + FAISS retrieval (top 10)
+    faiss_ranked: List[dict] = raw_results  # default fallback
+    snippets = [r["text"] for r in raw_results]
+    try:
+        index, _ = build_index(snippets)
+        top_snippets = search_index(
+            index=index,
+            query=claim,
+            docs=snippets,
+            k=min(10, len(snippets)),
+        )
+        # Map snippet text → original result dict (first-occurrence wins).
+        snippet_map: dict = {}
+        for r in raw_results:
+            s = r["text"]
+            if s not in snippet_map:
+                snippet_map[s] = r
 
-    return results
+        ordered = [snippet_map[s] for s in top_snippets if s in snippet_map]
+        if ordered:
+            faiss_ranked = ordered
+            logger.info(
+                "faiss_retrieval_complete",
+                extra={"claim": claim[:60], "returned": len(faiss_ranked)},
+            )
+    except Exception as e:
+        logger.error(
+            f"FAISS retrieval failed for claim '{claim[:60]}'; "
+            f"proceeding with original Serper order. Error: {e}"
+        )
+
+    # Step 3 – Cross-encoder re-ranking → top 3
+    try:
+        reranked = rerank_documents(claim, faiss_ranked, top_k=3)
+        logger.info(
+            "rerank_complete",
+            extra={"claim": claim[:60], "top_k": len(reranked)},
+        )
+        return reranked
+    except Exception as e:
+        logger.error(
+            f"Cross-encoder re-ranking failed for claim '{claim[:60]}'; "
+            f"returning top-3 FAISS results. Error: {e}"
+        )
+        # Graceful fallback: return first 3 FAISS results without rerank_score.
+        fallback = []
+        for doc in faiss_ranked[:3]:
+            entry = dict(doc)
+            entry.setdefault("rerank_score", 0.0)
+            fallback.append(entry)
+        return fallback
 
 
 async def check_evidence(text: str) -> EvidenceResponse:
     """
-    Check claims in text against Google Fact Check API, falling back to
-    Serper.dev web evidence retrieval when no fact-check results are found.
+    Check claims in *text* against Google Fact Check API, falling back to the
+    upgraded Serper + FAISS + cross-encoder + stance + credibility pipeline.
+
+    The returned ``overall_accuracy_score`` (and ``score``) is always
+    deterministic — no random verdicts are ever produced.
     """
     start = time.time()
     claims = _split_claims(text)
     facts: List[FactItem] = []
+    all_evidence_items: List[EvidenceItem] = []
 
-    # Track which providers were used so we can report accurately regardless
-    # of what stance labels end up in the verdict field.
+    agg_support = 0
+    agg_refute = 0
+    agg_neutral = 0
+
     serper_used = False
     factcheck_used = False
 
@@ -215,7 +251,7 @@ async def check_evidence(text: str) -> EvidenceResponse:
         )
 
         if api_data and api_data.get("claims"):
-            # Google Fact Check returned results — use them.
+            # Google Fact Check returned results — use them directly.
             factcheck_used = True
             claim_obj = api_data["claims"][0]
             rating = claim_obj.get("claimReview", [{}])[0].get("textualRating", "Unknown")
@@ -229,11 +265,11 @@ async def check_evidence(text: str) -> EvidenceResponse:
             logger.info(f"FactCheck result: '{rating}' from {site}")
 
         else:
-            # No fact-check results — fall back to Serper + vector retrieval + stance.
+            # No fact-check results — run the upgraded evidence pipeline:
+            # Serper → FAISS (top 10) → Cross-encoder (top 3) →
+            # Stance detection → Source credibility → Weighted score
             logger.warning(f"No fact-check results for claim: {claim[:100]}")
 
-            # retrieve_web_evidence already performs vector ranking internally;
-            # it returns at most 3 semantically-closest results.
             web_results = await retrieve_web_evidence(claim)
 
             if web_results:
@@ -242,23 +278,58 @@ async def check_evidence(text: str) -> EvidenceResponse:
                     "stance_detection",
                     extra={"claim": claim[:80], "evidence": len(web_results)},
                 )
-                for result in web_results:
-                    snippet = result.get("snippet", "")
-                    stance = detect_stance(claim, snippet)
+
+                for doc in web_results:
+                    snippet = doc.get("text", "")
+                    url = doc.get("url", "")
+                    source = doc.get("source", "")
+                    rerank_score = doc.get("rerank_score", 0.0)
+
+                    # Source credibility weight for this document.
+                    credibility = get_source_weight(url)
+
+                    # Deterministic stance detection via NLI.
+                    stance_result = detect_stance(claim, snippet)
+                    stance = stance_result["stance"]
+                    confidence = stance_result["confidence"]
+
+                    # Accumulate stance counters.
+                    if stance == "supports claim":
+                        agg_support += 1
+                    elif stance == "refutes claim":
+                        agg_refute += 1
+                    else:
+                        agg_neutral += 1
+
+                    # Backward-compat FactItem (verdict = stance label).
                     facts.append(
                         FactItem(
                             claim=claim,
-                            verdict=stance["label"],
-                            source=result["source"],
-                            url=result["url"],
-                            confidence=stance["score"],
+                            verdict=stance,
+                            source=source or None,
+                            url=url or None,
+                            confidence=confidence,
                         )
                     )
+
+                    # Rich EvidenceItem for the new response fields.
+                    all_evidence_items.append(
+                        EvidenceItem(
+                            text=snippet,
+                            url=url or None,
+                            stance=stance,
+                            credibility=credibility,
+                            rerank_score=rerank_score,
+                        )
+                    )
+
                 logger.info(
-                    f"Stance-annotated {len(web_results)} result(s) for claim: {claim[:60]}"
+                    f"Evidence pipeline complete: {len(web_results)} doc(s) "
+                    f"for claim '{claim[:60]}'"
                 )
+
             else:
-                # No evidence found from either source.
+                # No evidence at all — record a deterministic "no evidence" result.
                 logger.warning(
                     f"No evidence found (Fact Check + Serper) for claim: {claim[:100]}"
                 )
@@ -272,19 +343,31 @@ async def check_evidence(text: str) -> EvidenceResponse:
                     )
                 )
 
-    # coverage_ratio: fraction of claims that have at least one real source
+    # Weighted evidence score
+    # For each evidence item: weighted_total += credibility
+    # If stance == "supports claim": weighted_support += credibility
+    # score = weighted_support / weighted_total  (fallback 0.5 if no evidence)
+    if all_evidence_items:
+        weighted_support = 0.0
+        weighted_total = 0.0
+        for item in all_evidence_items:
+            weighted_total += item.credibility
+            if item.stance == "supports claim":
+                weighted_support += item.credibility
+        score = weighted_support / weighted_total if weighted_total > 0.0 else 0.5
+    else:
+        score = 0.5
+
+    # coverage_ratio: fraction of claims with at least one real source
     claims_with_source = len(set(f.claim for f in facts if f.source is not None))
     coverage_ratio = claims_with_source / max(1, len(claims))
 
-    # overall_accuracy_score: proportion of 'supports' stance outcomes across
-    # all fact items that have a source (Google FactCheck items keep their
-    # textual rating so we count non-refutation, non-missing verdicts).
-    sourced_facts = [f for f in facts if f.source is not None]
-    support_count = sum(
-        1 for f in sourced_facts
-        if f.verdict not in ("refutes", "No Evidence Found")
+    # Build summary objects
+    stance_summary = StanceSummary(
+        support=agg_support,
+        refute=agg_refute,
+        neutral=agg_neutral,
     )
-    overall_accuracy_score = support_count / max(1, len(sourced_facts))
 
     latency_ms = int((time.time() - start) * 1000)
 
@@ -301,6 +384,9 @@ async def check_evidence(text: str) -> EvidenceResponse:
         provider=provider,
         facts_checked=facts,
         coverage_ratio=coverage_ratio,
-        overall_accuracy_score=overall_accuracy_score,
+        overall_accuracy_score=score,   # kept for synth_service compatibility
         latency_ms=latency_ms,
+        score=score,
+        stance_summary=stance_summary,
+        evidence=all_evidence_items if all_evidence_items else None,
     )
