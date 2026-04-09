@@ -549,7 +549,9 @@ def _b64_to_image(b64: str, idx: Optional[int] = None) -> Optional[Any]:
                         png_bytes = res
                         svg_renderer = None
                     try:
-                        img = PILImage.open(io.BytesIO(png_bytes))
+                        img = PILImage_module.open(io.BytesIO(png_bytes)) if PILImage_module else None
+                        if img is None:
+                            return None
                     except Exception as exc2:
                         short = (txt_preview[:200] + '...') if len(txt_preview) > 200 else txt_preview
                         logger.warning(
@@ -582,7 +584,12 @@ def _b64_to_image(b64: str, idx: Optional[int] = None) -> Optional[Any]:
 
         # Resize if too large
         if any(dim > max_dim for dim, max_dim in zip(img.size, MAX_IMAGE_SIZE)):
-            img.thumbnail(MAX_IMAGE_SIZE, PILImage.Resampling.LANCZOS)
+            resampling = getattr(PILImage_module, 'Resampling', None) if PILImage_module else None
+            lanczos = getattr(resampling, 'LANCZOS', None) if resampling else None
+            if lanczos is not None:
+                img.thumbnail(MAX_IMAGE_SIZE, lanczos)
+            else:
+                img.thumbnail(MAX_IMAGE_SIZE)
 
         return img
 

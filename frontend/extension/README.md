@@ -1,62 +1,87 @@
-# React + TypeScript + Vite
+# VerifyX Chrome Extension
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Chrome extension client for VerifyX. It analyzes the active webpage using a four-agent backend pipeline.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- React 19
+- TypeScript 5
+- Vite 7
+- TailwindCSS 3
+- Chrome Extension Manifest V3
 
-## React Compiler
+## Folder Layout
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      tseslint.configs.recommendedTypeChecked,
-      tseslint.configs.strictTypeChecked,
-      tseslint.configs.stylisticTypeChecked,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-    },
-  },
-])
+```text
+extension/
+├── public/manifest.json      # MV3 config and permissions
+├── src/
+│   ├── popup/                # Popup UI (main user flow)
+│   ├── content/              # Content script helpers
+│   ├── background/           # Service worker
+│   ├── components/           # UI components
+│   └── utils/                # API client + constants
+└── vite.config.ts            # Build setup for extension assets
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Setup
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      reactX.configs['recommended-typescript'],
-
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-    },
-  },
-])
+```powershell
+cd frontend/extension
+npm install
 ```
+
+Create `.env` from `.env.example`:
+
+```env
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+If not set, the app falls back to `http://127.0.0.1:8000`.
+
+## Development Commands
+
+```powershell
+npm run dev
+npm run build
+npm run lint
+npm run preview
+```
+
+## Load Extension In Chrome
+
+1. Run `npm run build`.
+2. Open `chrome://extensions`.
+3. Enable Developer mode.
+4. Click Load unpacked.
+5. Select `frontend/extension/dist`.
+
+Rebuild after code or env changes, then reload extension from the Extensions page.
+
+## How Verification Works
+
+1. Popup requests active tab content using `chrome.scripting.executeScript`.
+2. Extracted text (up to 5000 chars) and up to 5 image URLs are sent to backend.
+3. Extension API client runs:
+   - `POST /linguistic`
+   - `POST /evidence`
+   - `POST /visual`
+   in parallel, then
+   - `POST /synthesize`.
+4. Popup renders per-agent cards and final verdict card.
+
+## Permissions and Hosts
+
+Manifest includes:
+
+- Permissions: `activeTab`, `scripting`, `storage`
+- Host permissions:
+  - `http://127.0.0.1:8000/*`
+  - `http://localhost:8000/*`
+  - `https://redpanda2005-verifyx-backend.hf.space/*`
+
+## Notes
+
+- `content.js` is registered as a content script for `<all_urls>`.
+- Background service worker exists for extension lifecycle and message handling.
+- Main analysis flow is triggered from popup UI.
