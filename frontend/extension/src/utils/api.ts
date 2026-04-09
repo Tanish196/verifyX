@@ -102,6 +102,13 @@ export interface SynthesisResponse {
   latency_ms: number
 }
 
+export interface VerificationResult {
+  linguistic: LinguisticResponse
+  evidence: EvidenceResponse
+  visual: VisualResponse
+  synthesis: SynthesisResponse
+}
+
 class HTTPError extends Error {
   status: number
   body?: string
@@ -240,7 +247,7 @@ export async function synthesizeResults(
   )
 }
 
-export async function verifyContent(text: string, imageUrls: string[] = []) {
+export async function verifyContent(text: string, imageUrls: string[] = []): Promise<VerificationResult> {
   try {
     // Run linguistic, evidence and visual checks in parallel
     const [linguisticResult, evidenceResult, visualResult] = await Promise.all([

@@ -65,3 +65,5 @@ Dockerfile
 .dockerignore
 scripts/
 tests/
+
+*.mp4

@@ -26,6 +26,13 @@ export const RETRY_CONFIG = {
   DELAY_MS: 1000,
 } as const
 
+// Local scan-cache configuration (used by popup flow)
+export const CACHE_CONFIG = {
+  STORAGE_KEY: 'verifyx_page_cache_v1',
+  TTL_MS: 15 * 60 * 1000,
+  MAX_ENTRIES: 40,
+} as const
+
 // Agent Names
 export const AGENTS = {
   LINGUISTIC: 'Linguistic Analysis',
