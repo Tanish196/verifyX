@@ -13,27 +13,25 @@ export default function ExtensionDemo() {
           </p>
         </div>
 
-        {/* Video embed placeholder */}
+        {/* Embedded demo video */}
         <div className="bg-white rounded-2xl shadow-xl p-8 border border-gray-200">
-          <div className="aspect-video bg-gray-900 rounded-lg overflow-hidden relative">
-            {/* Placeholder for video - user can replace with actual video */}
-            <div className="absolute inset-0 flex items-center justify-center text-white">
-              <div className="text-center">
-                <svg className="w-24 h-24 mx-auto mb-4 opacity-50" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
-                </svg>
-                <p className="text-lg opacity-75">Extension Demo Video</p>
-                <p className="text-sm opacity-50 mt-2">Replace this with your actual demo video embed</p>
-              </div>
+          <div className="rounded-xl bg-linear-to-r from-purple-100 to-blue-100 p-1.5 border border-purple-200">
+            <div className="aspect-video bg-gray-900 rounded-lg overflow-hidden relative">
+              <iframe
+                className="w-full h-full"
+                src="https://www.youtube.com/embed/sMYTRvat4qo"
+                title="verifyX Chrome Extension Demo"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                referrerPolicy="strict-origin-when-cross-origin"
+                allowFullScreen
+              ></iframe>
             </div>
-            {/* Uncomment and add your video URL below */}
-            {/* <iframe
-              className="w-full h-full"
-              src="YOUR_VIDEO_URL_HERE"
-              title="verifyX Chrome Extension Demo"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-            ></iframe> */}
+          </div>
+          <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+            <p className="text-gray-600">Live walkthrough of verification from extraction to final verdict.</p>
+            <span className="shrink-0 inline-flex items-center rounded-full bg-purple-100 text-purple-700 px-3 py-1 font-medium">
+              Demo Video
+            </span>
           </div>
 
           {/* Instructions */}
